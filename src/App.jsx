@@ -7,7 +7,17 @@ const TRANSLATE_ENDPOINT = "https://dilen-digital.co.il/api/projects/translate.p
 const DB_ENDPOINT = "https://dilen-digital.co.il/api/projects/cards.php";
 
 const UNIT_OPTIONS = ["ל-100 גרם", "ליח׳"];
-const OPTION_PRESETS = ["", "חריף", "טבעוני", "ללא גלוטן", "חדש"];
+
+const OPTION_PRESETS = [
+  "",
+  "אינו מכיל גלוטן אך מיוצר בסביבה המכילה גלוטן",
+  "טבעוני",
+  "בשר חלק חול לפי שיטת בית יוסף",
+  "צמחוני",
+  "ללא חשש תולעים",
+  "עוף מהדרין",
+  "חדש",
+];
 
 const CSV_HEADERS = [
   "is_selected",
@@ -25,6 +35,32 @@ const CSV_HEADERS = [
   "alergonim_3",
 ];
 
+/* =========================
+   ✅ ALLERGENS (UI shows LABEL, CSV/DB keeps PATH)
+   ========================= */
+const ALERGENS = {
+  GLUTEN: {
+    key: "GLUTEN",
+    label: "גלוטן",
+    path:
+      "/Volumes/studio/grafica/lahmajun_abu_rami_0469/lachmajun_new_template/lachmajun_master_heb_english_23194/logo_gloten/logo_gloten-01.png",
+  },
+  VEGAN: {
+    key: "VEGAN",
+    label: "טבעוני",
+    path:
+      "/Volumes/studio/grafica/lahmajun_abu_rami_0469/lachmajun_new_template/lachmajun_master_heb_english_23194/logo_gloten/logo_gloten-02.png",
+  },
+  VEGETARIAN: {
+    key: "VEGETARIAN",
+    label: "צמחוני",
+    path:
+      "/Volumes/studio/grafica/lahmajun_abu_rami_0469/lachmajun_new_template/lachmajun_master_heb_english_23194/logo_gloten/logo_gloten-03.png",
+  },
+};
+
+const ALERGEN_LIST = Object.values(ALERGENS);
+
 function makeClientId() {
   return crypto?.randomUUID?.() || `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
@@ -34,29 +70,6 @@ function cleanSpaces(s) {
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function emptyRow(selectedDefault = true) {
-  return {
-    id: null,
-    client_id: makeClientId(),
-    is_selected: selectedDefault,
-    line_1: "",
-    line_2: "",
-    line_3: "",
-    english_name: "",
-    option_1_preset: "",
-    option_1_custom: "",
-    option_2_preset: "",
-    option_2_custom: "",
-    option_3_preset: "",
-    option_3_custom: "",
-    price: "",
-    unit: "",
-    alergonim_1: false,
-    alergonim_2: false,
-    alergonim_3: false,
-  };
 }
 
 function finalOption(preset, custom) {
@@ -69,6 +82,32 @@ function combineLines(line1, line2, line3) {
     .map((v) => (v ?? "").toString().trim())
     .filter(Boolean)
     .join(" ");
+}
+
+/** Map note text -> allergen PATH (or empty) */
+function allergenFromNote(note) {
+  const t = cleanSpaces(note);
+  if (!t) return "";
+  if (t.startsWith("אינו מכיל גלוטן")) return ALERGENS.GLUTEN.path;
+  if (t === "טבעוני") return ALERGENS.VEGAN.path;
+  if (t === "צמחוני") return ALERGENS.VEGETARIAN.path;
+  return "";
+}
+
+/** PATH -> LABEL (for UI only) */
+function allergenPathToLabel(path) {
+  const p = cleanSpaces(path);
+  if (!p) return "";
+  const found = ALERGEN_LIST.find((a) => a.path === p);
+  return found ? found.label : "ידני";
+}
+
+/** LABEL -> PATH (for UI selection) */
+function allergenLabelToPath(label) {
+  const l = cleanSpaces(label);
+  if (!l) return "";
+  const found = ALERGEN_LIST.find((a) => a.label === l);
+  return found ? found.path : "";
 }
 
 /**
@@ -105,11 +144,57 @@ async function translateToEnglish(text) {
 
 function toBool(v, def = false) {
   if (typeof v === "boolean") return v;
-  const s = String(v ?? "")
-    .trim()
-    .toLowerCase();
+  const s = String(v ?? "").trim().toLowerCase();
   if (!s) return def;
   return s === "true" || s === "1" || s === "yes" || s === "כן";
+}
+
+/** Accept CSV/Excel values for alergonim: TRUE/FALSE or a path */
+function toAlergonValue(v) {
+  const s = cleanSpaces(v);
+  if (!s) return "";
+  const low = s.toLowerCase();
+  if (low === "true" || low === "1" || low === "yes" || low === "כן") return ALERGENS.GLUTEN.path;
+  if (low === "false" || low === "0" || low === "no" || low === "לא") return "";
+  return s; // already a path
+}
+
+function emptyRow(selectedDefault = true) {
+  return {
+    id: null,
+    client_id: makeClientId(),
+    is_selected: selectedDefault,
+
+    line_1: "",
+    line_2: "",
+    line_3: "",
+    english_name: "",
+
+    option_1_preset: "",
+    option_1_custom: "",
+    option_2_preset: "",
+    option_2_custom: "",
+    option_3_preset: "",
+    option_3_custom: "",
+
+    price: "",
+    unit: "",
+
+    // ✅ PATH STRINGS
+    alergonim_1: "",
+    alergonim_2: "",
+    alergonim_3: "",
+
+    // ✅ locks
+    alergonim_1_locked: false,
+    alergonim_2_locked: false,
+    alergonim_3_locked: false,
+
+    // ✅ for UI: manual editor
+    alergonim_1_mode: "auto", // auto | manual
+    alergonim_2_mode: "auto",
+    alergonim_3_mode: "auto",
+  };
 }
 
 function normalizeImportedRow(raw, selectedDefault = true) {
@@ -120,6 +205,7 @@ function normalizeImportedRow(raw, selectedDefault = true) {
     r.id = Number.isFinite(n) ? n : null;
   }
 
+  // typo support
   if (raw?.english_anme && !raw?.english_name) raw.english_name = raw.english_anme;
 
   for (const k of Object.keys(r)) {
@@ -131,9 +217,19 @@ function normalizeImportedRow(raw, selectedDefault = true) {
   if (raw?.option_3 !== undefined) r.option_3_custom = String(raw.option_3 ?? "");
 
   r.is_selected = toBool(raw?.is_selected, selectedDefault);
-  r.alergonim_1 = toBool(raw?.alergonim_1, false);
-  r.alergonim_2 = toBool(raw?.alergonim_2, false);
-  r.alergonim_3 = toBool(raw?.alergonim_3, false);
+
+  r.alergonim_1 = toAlergonValue(raw?.alergonim_1 ?? r.alergonim_1);
+  r.alergonim_2 = toAlergonValue(raw?.alergonim_2 ?? r.alergonim_2);
+  r.alergonim_3 = toAlergonValue(raw?.alergonim_3 ?? r.alergonim_3);
+
+  // if imported has a value -> consider it manual
+  r.alergonim_1_locked = !!cleanSpaces(r.alergonim_1);
+  r.alergonim_2_locked = !!cleanSpaces(r.alergonim_2);
+  r.alergonim_3_locked = !!cleanSpaces(r.alergonim_3);
+
+  r.alergonim_1_mode = r.alergonim_1_locked && allergenPathToLabel(r.alergonim_1) === "ידני" ? "manual" : "auto";
+  r.alergonim_2_mode = r.alergonim_2_locked && allergenPathToLabel(r.alergonim_2) === "ידני" ? "manual" : "auto";
+  r.alergonim_3_mode = r.alergonim_3_locked && allergenPathToLabel(r.alergonim_3) === "ידני" ? "manual" : "auto";
 
   r.line_1 = String(r.line_1 ?? "");
   r.line_2 = String(r.line_2 ?? "");
@@ -143,6 +239,20 @@ function normalizeImportedRow(raw, selectedDefault = true) {
   r.unit = String(r.unit ?? "");
 
   r.client_id = r.client_id || makeClientId();
+
+  // smart auto-fill allergens from notes (only if not locked)
+  for (const i of [1, 2, 3]) {
+    const lockKey = `alergonim_${i}_locked`;
+    const valKey = `alergonim_${i}`;
+    const modeKey = `alergonim_${i}_mode`;
+    if (!r[lockKey]) {
+      const note = finalOption(r[`option_${i}_preset`], r[`option_${i}_custom`]);
+      const icon = allergenFromNote(note);
+      r[valKey] = icon;
+      r[modeKey] = "auto";
+    }
+  }
+
   return r;
 }
 
@@ -157,11 +267,6 @@ function isNumericLike(v) {
 }
 
 function compareValues(a, b, dir) {
-  if (typeof a === "boolean" || typeof b === "boolean") {
-    const av = a ? 1 : 0;
-    const bv = b ? 1 : 0;
-    return (av - bv) * dir;
-  }
   if (isNumericLike(a) && isNumericLike(b)) {
     return (Number(a) - Number(b)) * dir;
   }
@@ -170,7 +275,7 @@ function compareValues(a, b, dir) {
   return as.localeCompare(bs) * dir;
 }
 
-/** ✅ Always parse response as text first (no "Unexpected token <") */
+/** ✅ Always parse response as text first */
 async function fetchJson(url, options) {
   const res = await fetch(url, options);
   const text = await res.text();
@@ -196,7 +301,6 @@ export default function App() {
   const [selectAllDefault, setSelectAllDefault] = useState(true);
   const [translateOnlyIfEmpty, setTranslateOnlyIfEmpty] = useState(true);
 
-  // ✅ project_id required by DB (foreign key)
   const [projectId, setProjectId] = useState(null);
 
   const [search, setSearch] = useState("");
@@ -207,6 +311,104 @@ export default function App() {
   const lastSavedRef = useRef("");
 
   const fileRef = useRef(null);
+
+  /** ✅ Update option + auto allergen (smart + lock-safe) */
+  function setOptionValue(rowIndex, optionIndex, preset, custom) {
+    setRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[rowIndex] };
+
+      row[`option_${optionIndex}_preset`] = preset;
+      row[`option_${optionIndex}_custom`] = custom;
+
+      const lockKey = `alergonim_${optionIndex}_locked`;
+      const valKey = `alergonim_${optionIndex}`;
+      const modeKey = `alergonim_${optionIndex}_mode`;
+
+      if (!row[lockKey]) {
+        const note = finalOption(preset, custom);
+        row[valKey] = allergenFromNote(note);
+        row[modeKey] = "auto";
+      }
+
+      next[rowIndex] = row;
+      return next;
+    });
+  }
+
+  /** ✅ Set allergen by LABEL (UI) */
+  function setAlergonLabel(rowIndex, allergenIndex, label) {
+    setRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[rowIndex] };
+
+      const valKey = `alergonim_${allergenIndex}`;
+      const lockKey = `alergonim_${allergenIndex}_locked`;
+      const modeKey = `alergonim_${allergenIndex}_mode`;
+
+      const l = cleanSpaces(label);
+
+      if (!l) {
+        // cleared => unlock + auto from note
+        row[lockKey] = false;
+        row[modeKey] = "auto";
+        const note = finalOption(row[`option_${allergenIndex}_preset`], row[`option_${allergenIndex}_custom`]);
+        row[valKey] = allergenFromNote(note);
+      } else if (l === "ידני") {
+        // manual mode (keep existing value, lock it)
+        row[lockKey] = true;
+        row[modeKey] = "manual";
+        if (!cleanSpaces(row[valKey])) row[valKey] = "";
+      } else {
+        // preset label => set path and lock
+        row[valKey] = allergenLabelToPath(l);
+        row[lockKey] = true;
+        row[modeKey] = "auto";
+      }
+
+      next[rowIndex] = row;
+      return next;
+    });
+  }
+
+  /** ✅ Set manual PATH (locks) */
+  function setAlergonManualPath(rowIndex, allergenIndex, path) {
+    setRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[rowIndex] };
+
+      const valKey = `alergonim_${allergenIndex}`;
+      const lockKey = `alergonim_${allergenIndex}_locked`;
+      const modeKey = `alergonim_${allergenIndex}_mode`;
+
+      row[valKey] = String(path ?? "");
+      row[lockKey] = true;
+      row[modeKey] = "manual";
+
+      next[rowIndex] = row;
+      return next;
+    });
+  }
+
+  function unlockAlergon(rowIndex, allergenIndex) {
+    setRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[rowIndex] };
+
+      const valKey = `alergonim_${allergenIndex}`;
+      const lockKey = `alergonim_${allergenIndex}_locked`;
+      const modeKey = `alergonim_${allergenIndex}_mode`;
+
+      row[lockKey] = false;
+      row[modeKey] = "auto";
+
+      const note = finalOption(row[`option_${allergenIndex}_preset`], row[`option_${allergenIndex}_custom`]);
+      row[valKey] = allergenFromNote(note);
+
+      next[rowIndex] = row;
+      return next;
+    });
+  }
 
   const exportRows = useMemo(() => {
     return rows.map((r) => ({
@@ -220,9 +422,11 @@ export default function App() {
       option_3: finalOption(r.option_3_preset, r.option_3_custom),
       price: r.price,
       unit: r.unit,
-      alergonim_1: r.alergonim_1 ? "TRUE" : "FALSE",
-      alergonim_2: r.alergonim_2 ? "TRUE" : "FALSE",
-      alergonim_3: r.alergonim_3 ? "TRUE" : "FALSE",
+
+      // ✅ EXPORT FULL PATH (InDesign needs this)
+      alergonim_1: r.alergonim_1 || "",
+      alergonim_2: r.alergonim_2 || "",
+      alergonim_3: r.alergonim_3 || "",
     }));
   }, [rows]);
 
@@ -240,9 +444,11 @@ export default function App() {
       option_3: finalOption(r.option_3_preset, r.option_3_custom),
       price: r.price,
       unit: r.unit,
-      alergonim_1: r.alergonim_1 ? 1 : 0,
-      alergonim_2: r.alergonim_2 ? 1 : 0,
-      alergonim_3: r.alergonim_3 ? 1 : 0,
+
+      // ✅ SAVE FULL PATH
+      alergonim_1: r.alergonim_1 || "",
+      alergonim_2: r.alergonim_2 || "",
+      alergonim_3: r.alergonim_3 || "",
     }));
   }, [rows]);
 
@@ -358,12 +564,12 @@ export default function App() {
       const data = await fetchJson(url, {
         method: "GET",
         headers: { Accept: "application/json" },
-        // credentials: "include", // enable when you have login
       });
 
       setProjectId(data.project_id ?? null);
       const imported = (data.rows || []).map((r) => normalizeImportedRow(r, selectAllDefault));
       setRows(imported.length ? imported : [emptyRow(selectAllDefault)]);
+
       lastSavedRef.current = JSON.stringify({
         projectId: data.project_id ?? null,
         rows: (imported.length ? imported : [emptyRow(selectAllDefault)]).map((r) => ({
@@ -379,11 +585,12 @@ export default function App() {
           option_3: finalOption(r.option_3_preset, r.option_3_custom),
           price: r.price,
           unit: r.unit,
-          alergonim_1: r.alergonim_1 ? 1 : 0,
-          alergonim_2: r.alergonim_2 ? 1 : 0,
-          alergonim_3: r.alergonim_3 ? 1 : 0,
+          alergonim_1: r.alergonim_1 || "",
+          alergonim_2: r.alergonim_2 || "",
+          alergonim_3: r.alergonim_3 || "",
         })),
       });
+
       setIsDirty(false);
     } catch (e) {
       alert(`DB load error: ${e?.message || e}`);
@@ -413,7 +620,6 @@ export default function App() {
       const data = await fetchJson(DB_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // credentials: "include",
         body: JSON.stringify({ project_id: projectId, rows: rowsToSave }),
       });
 
@@ -432,9 +638,7 @@ export default function App() {
       markSaved();
       const skipped = data.skipped_empty ?? 0;
       alert(
-        `Saved ✅ (${data.saved ?? rowsToSave.length})${
-          skipped ? `\nSkipped empty: ${skipped}` : ""
-        }`
+        `Saved ✅ (${data.saved ?? rowsToSave.length})${skipped ? `\nSkipped empty: ${skipped}` : ""}`
       );
     } catch (e) {
       alert(`DB save error: ${e?.message || e}`);
@@ -461,6 +665,9 @@ export default function App() {
           finalOption(row.option_3_preset, row.option_3_custom),
           row.price,
           row.unit,
+          row.alergonim_1,
+          row.alergonim_2,
+          row.alergonim_3,
         ]
           .map((v) => normalizeForSearch(v))
           .join(" | ");
@@ -519,87 +726,117 @@ export default function App() {
   return (
     <div className="dilenCardsApp" dir={rtl ? "rtl" : "ltr"}>
       <style>{`
+        :root{ --bd:#d9d9d9; --bg:#ffffff; }
         .dilenCardsApp{
-          padding:16px;
-          background:#fff;
-          color:#111;
+          padding:12px; background:var(--bg); color:#111;
           font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         }
-        .dilenCardsApp, .dilenCardsApp *{ color:#111 !important; }
+        .dilenCardsApp *{ box-sizing:border-box; }
 
-        .dilenTop{ display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
-        .dilenRow{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-        .dilenTitle{ margin:0; font-size:22px; font-weight:800; }
+        .dilenTop{ display:grid; gap:10px; }
+
+        .dilenBar{
+          display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+          padding:10px; border:1px solid var(--bd); border-radius:10px; background:#fff;
+        }
+
+        .dilenTitle{ margin:0; font-size:20px; font-weight:900; letter-spacing:0.2px; }
 
         .dilenBtn{
-          padding:8px 12px; border-radius:8px;
-          border:1px solid #cfcfcf; background:#fff; cursor:pointer;
+          padding:6px 10px; border-radius:8px; border:1px solid var(--bd);
+          background:#fff; cursor:pointer; font-size:13px; font-weight:700; white-space:nowrap;
         }
         .dilenBtnPrimary{
-          padding:8px 12px; border-radius:8px;
-          border:1px solid #0b63ff; background:#0b63ff; cursor:pointer;
-          color:#fff !important;
+          padding:6px 10px; border-radius:8px; border:1px solid #0b63ff; background:#0b63ff;
+          cursor:pointer; color:#fff !important; font-size:13px; font-weight:800; white-space:nowrap;
         }
-        .dilenBtn:disabled,.dilenBtnPrimary:disabled{ opacity:0.6; cursor:not-allowed; }
+        .dilenBtnTiny{
+          padding:2px 5px; border-radius:6px; border:1px solid var(--bd);
+          background:#fff; cursor:pointer; font-size:11px; font-weight:800; white-space:nowrap;
+        }
+        .dilenBtn:disabled,.dilenBtnPrimary:disabled,.dilenBtnTiny:disabled{ opacity:0.6; cursor:not-allowed; }
 
         .dilenInp,.dilenSel{
-          height:28px; padding:4px 8px;
-          border:1px solid #cfcfcf; border-radius:8px;
-          outline:none; background:#fff !important;
-          color:#111 !important; -webkit-text-fill-color:#111 !important; caret-color:#111 !important;
-          font-size:13px; box-sizing:border-box;
+          height:26px; padding:3px 6px; font-size:12px;
+          border:1px solid var(--bd); border-radius:6px; width:100%; background:#fff; outline:none;
         }
-        .dilenSel{ height:30px; }
-        .dilenSearch{ width:220px; }
-        .dilenPid{ width:140px; }
+        .dilenSel{ height:28px; }
 
         .dilenPill{
-          font-size:13px; padding:6px 10px;
-          border:1px solid #e5e5e5; background:#fafafa; border-radius:999px;
-          display:inline-flex; align-items:center; gap:6px;
-          white-space:nowrap;
+          font-size:12px; padding:5px 8px; border:1px solid #e5e5e5; background:#fafafa;
+          border-radius:999px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:700;
         }
         .dilenPillWarn{ border-color:#ffcc00; background:#fff7cc; }
         .dilenPillOk{ border-color:#bde5bd; background:#eaffea; }
 
         .dilenToggles{
-          display:flex; gap:12px; align-items:center; flex-wrap:wrap;
-          padding:8px 10px; border:1px solid #e5e5e5; background:#fafafa; border-radius:10px;
+          display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+          padding:10px; border:1px solid var(--bd); border-radius:10px; background:#fafafa;
         }
-        .dilenToggle{ display:flex; gap:6px; align-items:center; font-size:13px; white-space:nowrap; }
+        .dilenToggle{ display:flex; gap:6px; align-items:center; font-size:12px; white-space:nowrap; font-weight:700; }
 
-        .dilenTableWrap{
-          margin-top:12px; overflow:auto;
-          border:1px solid #ddd; border-radius:8px;
-          max-height:72vh; background:#fff;
+        .dilenTableWrap{ margin-top:10px; border:1px solid var(--bd); border-radius:10px; overflow:hidden; background:#fff; }
+        .dilenScroll{ overflow-x:auto; max-height:72vh; -webkit-overflow-scrolling: touch; }
+
+        table.dilenTable{
+          width:100%; border-collapse:collapse; table-layout:fixed;
+          min-width:1200px; background:#fff;
         }
-        table.dilenTable{ width:100%; border-collapse:collapse; min-width:1200px; background:#fff; }
+
         .dilenTable thead th{
           position:sticky; top:0; z-index:5;
-          background:#fafafa !important; border-bottom:1px solid #e5e5e5;
-          padding:10px 8px; text-align:start; white-space:nowrap; font-weight:800;
+          background:#f6f7f9; border-bottom:1px solid #ddd;
+          padding:6px 6px; font-size:12px; font-weight:800; text-align:start; white-space:nowrap;
         }
-        .dilenSortTh{ cursor:pointer; user-select:none; }
 
         .dilenTable tbody td{
-          padding:8px; border-top:1px solid #eee;
-          vertical-align:top; background:#fff;
+          padding:5px 6px; border-bottom:1px solid #eee; vertical-align:middle; font-size:12px;
         }
-        .dilenTable tbody tr:nth-child(even) td{ background:#fbfbfb; }
 
+        .dilenTable tbody tr:nth-child(even){ background:#fafafa; }
+
+        .dilenSortTh{ cursor:pointer; user-select:none; }
         .dilenCenter{ text-align:center; }
-        .dilenEnglishCell{ min-width:280px; }
-        .dilenEnglishRow{ display:flex; gap:8px; align-items:center; }
 
         .dilenCode{
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          background:#f3f3f3; padding:1px 6px; border-radius:6px;
+          font-size:11px; background:#f2f2f2; padding:1px 4px; border-radius:4px;
+          display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
         }
-        .dilenSmall{ font-size:12px; opacity:0.75; margin-top:6px; }
+
+        .dilenEnglishRow{ display:flex; gap:4px; align-items:center; }
+        .dilenEnglishRow button{ padding:4px 6px; font-size:11px; }
+
+        .dilenSmall{ font-size:11px; opacity:0.7; margin-top:4px; line-height:1.2; }
+
+        /* ===== COLUMN SIZES ===== */
+        .col-id{ width:55px; }
+        .col-num{ width:45px; }
+        .col-save{ width:55px; }
+        .col-line{ width:140px; }
+        .col-english{ width:220px; }
+        .col-note{ width:170px; }
+        .col-price{ width:70px; }
+        .col-unit{ width:90px; }
+        .col-aler{ width:65px; }  /* ✅ smaller (half-ish) */
+        .col-del{ width:70px; }
+
+        .optionCell{ display:grid; gap:4px; }
+
+        /* ===== ALERGEN CELL (small) ===== */
+        .dilenAlerWrap{ display:flex; flex-direction:column; gap:4px; }
+        .dilenAlerTop{ display:flex; gap:4px; align-items:center; }
+        .dilenAlerSel{
+          height:22px; font-size:11px; padding:1px 4px;
+        }
+        .dilenAlerManual{
+          height:22px; font-size:10px; padding:1px 4px;
+        }
+        .dilenLock{ font-size:11px; opacity:0.65; line-height:1; }
       `}</style>
 
       <div className="dilenTop">
-        <div className="dilenRow">
+        <div className="dilenBar">
           <h2 className="dilenTitle">Cards CSV Builder</h2>
 
           <button className="dilenBtn" onClick={() => fileRef.current?.click()} disabled={busy}>
@@ -652,26 +889,30 @@ export default function App() {
             </b>
           </span>
 
-          <input
-            className="dilenInp dilenSearch"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
-            disabled={busy}
-          />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              className="dilenInp"
+              style={{ width: 200 }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              disabled={busy}
+            />
 
-          <input
-            className="dilenInp dilenPid"
-            value={projectId ?? ""}
-            onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
-            placeholder="project_id"
-            disabled={busy}
-            title="Optional: set existing project_id. If empty, server creates one."
-          />
+            <input
+              className="dilenInp"
+              style={{ width: 150 }}
+              value={projectId ?? ""}
+              onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+              placeholder="project_id"
+              disabled={busy}
+              title="Optional: set existing project_id. If empty, server creates one."
+            />
 
-          <span className="dilenPill" title="Current project id used for DB rows">
-            Project: <b>{projectId ?? "auto"}</b>
-          </span>
+            <span className="dilenPill" title="Current project id used for DB rows">
+              Project: <b>{projectId ?? "auto"}</b>
+            </span>
+          </div>
         </div>
 
         <div className="dilenToggles">
@@ -701,207 +942,196 @@ export default function App() {
       </div>
 
       <div className="dilenTableWrap">
-        <table className="dilenTable">
-          <thead>
-            <tr>
-              <Th>ID</Th>
-              <Th>#</Th>
-              <SortTh label="save?" col="is_selected" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="line_1" col="line_1" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="line_2" col="line_2" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="line_3" col="line_3" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="english_name" col="english_name" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="option_1" col="option_1" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="option_2" col="option_2" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="option_3" col="option_3" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="price" col="price" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="unit" col="unit" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="a1" col="alergonim_1" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="a2" col="alergonim_2" onSort={toggleSort} mark={sortMark} />
-              <SortTh label="a3" col="alergonim_3" onSort={toggleSort} mark={sortMark} />
-              <Th>Actions</Th>
-            </tr>
-          </thead>
+        <div className="dilenScroll">
+          <table className="dilenTable">
+            <thead>
+              <tr>
+                <Th className="col-id">ID</Th>
+                <Th className="col-num">#</Th>
 
-          <tbody>
-            {viewRows.map(({ row: r, index: realIndex }) => (
-              <tr key={r.client_id || realIndex}>
-                <td className="dilenCenter">
-                  <span className="dilenCode">{r.id ? r.id : "-"}</span>
-                </td>
+                <SortTh className="col-save" label="שמור?" col="is_selected" onSort={toggleSort} mark={sortMark} />
 
-                <td className="dilenCenter">{realIndex + 1}</td>
+                <SortTh className="col-line" label="שורה_1" col="line_1" onSort={toggleSort} mark={sortMark} />
+                <SortTh className="col-line" label="שורה_2" col="line_2" onSort={toggleSort} mark={sortMark} />
+                <SortTh className="col-line" label="שורה_3" col="line_3" onSort={toggleSort} mark={sortMark} />
 
-                <td className="dilenCenter">
-                  <input
-                    type="checkbox"
-                    checked={!!r.is_selected}
-                    onChange={(e) => updateCell(realIndex, "is_selected", e.target.checked)}
-                    disabled={busy}
-                  />
-                </td>
+                <SortTh className="col-english" label="אנגלית" col="english_name" onSort={toggleSort} mark={sortMark} />
 
-                <td>
-                  <input
-                    className="dilenInp"
-                    value={r.line_1}
-                    onChange={(e) => updateCell(realIndex, "line_1", e.target.value)}
-                    disabled={busy}
-                  />
-                </td>
+                <SortTh className="col-note" label="הערה_1" col="option_1" onSort={toggleSort} mark={sortMark} />
+                <SortTh className="col-note" label="הערה_2" col="option_2" onSort={toggleSort} mark={sortMark} />
+                <SortTh className="col-note" label="הערה_3" col="option_3" onSort={toggleSort} mark={sortMark} />
 
-                <td>
-                  <input
-                    className="dilenInp"
-                    value={r.line_2}
-                    onChange={(e) => updateCell(realIndex, "line_2", e.target.value)}
-                    disabled={busy}
-                  />
-                </td>
+                <SortTh className="col-price" label="מחיר" col="price" onSort={toggleSort} mark={sortMark} />
+                <SortTh className="col-unit" label="יחידה" col="unit" onSort={toggleSort} mark={sortMark} />
 
-                <td>
-                  <input
-                    className="dilenInp"
-                    value={r.line_3}
-                    onChange={(e) => updateCell(realIndex, "line_3", e.target.value)}
-                    disabled={busy}
-                  />
-                </td>
+                <SortTh className="col-aler" label="אלרגון 1" col="alergonim_1" onSort={toggleSort} mark={sortMark} />
+                <SortTh className="col-aler" label="אלרגון 2" col="alergonim_2" onSort={toggleSort} mark={sortMark} />
+                <SortTh className="col-aler" label="אלרגון 3" col="alergonim_3" onSort={toggleSort} mark={sortMark} />
 
-                <td className="dilenEnglishCell">
-                  <div className="dilenEnglishRow">
+                <Th className="col-del">מחיקה</Th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {viewRows.map(({ row: r, index: realIndex }) => (
+                <tr key={r.client_id || realIndex}>
+                  <td className="dilenCenter">
+                    <span className="dilenCode">{r.id ? r.id : "-"}</span>
+                  </td>
+
+                  <td className="dilenCenter">{realIndex + 1}</td>
+
+                  <td className="dilenCenter">
                     <input
-                      className="dilenInp"
-                      style={{ flex: 1 }}
-                      value={r.english_name}
-                      onChange={(e) => updateCell(realIndex, "english_name", e.target.value)}
+                      type="checkbox"
+                      checked={!!r.is_selected}
+                      onChange={(e) => updateCell(realIndex, "is_selected", e.target.checked)}
                       disabled={busy}
                     />
-                    <button
-                      className="dilenBtn"
-                      onClick={async () => {
-                        setBusy(true);
-                        try {
-                          await autoTranslateRow(realIndex);
-                        } catch (err) {
-                          alert(`Translate error: ${err?.message || err}`);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
+                  </td>
+
+                  <td>
+                    <input className="dilenInp" value={r.line_1} onChange={(e) => updateCell(realIndex, "line_1", e.target.value)} disabled={busy} />
+                  </td>
+
+                  <td>
+                    <input className="dilenInp" value={r.line_2} onChange={(e) => updateCell(realIndex, "line_2", e.target.value)} disabled={busy} />
+                  </td>
+
+                  <td>
+                    <input className="dilenInp" value={r.line_3} onChange={(e) => updateCell(realIndex, "line_3", e.target.value)} disabled={busy} />
+                  </td>
+
+                  <td>
+                    <div className="dilenEnglishRow">
+                      <input
+                        className="dilenInp"
+                        value={r.english_name}
+                        onChange={(e) => updateCell(realIndex, "english_name", e.target.value)}
+                        disabled={busy}
+                      />
+                      <button
+                        className="dilenBtn"
+                        onClick={async () => {
+                          setBusy(true);
+                          try {
+                            await autoTranslateRow(realIndex);
+                          } catch (err) {
+                            alert(`Translate error: ${err?.message || err}`);
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                        disabled={busy}
+                        title="Combine 3 lines → translate to English"
+                      >
+                        A↔
+                      </button>
+                    </div>
+                    <div className="dilenSmall">
+                      Combined: <span className="dilenCode">{combineLines(r.line_1, r.line_2, r.line_3) || "(empty)"}</span>
+                    </div>
+                  </td>
+
+                  <td>
+                    <OptionCell
+                      preset={r.option_1_preset}
+                      custom={r.option_1_custom}
+                      onChange={(preset, custom) => setOptionValue(realIndex, 1, preset, custom)}
                       disabled={busy}
-                      title="Combine 3 lines → translate to English"
-                    >
-                      A↔
+                    />
+                  </td>
+
+                  <td>
+                    <OptionCell
+                      preset={r.option_2_preset}
+                      custom={r.option_2_custom}
+                      onChange={(preset, custom) => setOptionValue(realIndex, 2, preset, custom)}
+                      disabled={busy}
+                    />
+                  </td>
+
+                  <td>
+                    <OptionCell
+                      preset={r.option_3_preset}
+                      custom={r.option_3_custom}
+                      onChange={(preset, custom) => setOptionValue(realIndex, 3, preset, custom)}
+                      disabled={busy}
+                    />
+                  </td>
+
+                  <td>
+                    <input className="dilenInp" value={r.price} onChange={(e) => updateCell(realIndex, "price", e.target.value)} disabled={busy} />
+                  </td>
+
+                  <td>
+                    <select className="dilenSel" value={r.unit} onChange={(e) => updateCell(realIndex, "unit", e.target.value)} disabled={busy}>
+                      <option value="">(empty)</option>
+                      {UNIT_OPTIONS.map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+
+                  <td>
+                    <AlergonCellLabelUI
+                      label={allergenPathToLabel(r.alergonim_1)}
+                      path={r.alergonim_1}
+                      mode={r.alergonim_1_mode}
+                      locked={r.alergonim_1_locked}
+                      onLabelChange={(lab) => setAlergonLabel(realIndex, 1, lab)}
+                      onManualPathChange={(p) => setAlergonManualPath(realIndex, 1, p)}
+                      onUnlock={() => unlockAlergon(realIndex, 1)}
+                      disabled={busy}
+                    />
+                  </td>
+
+                  <td>
+                    <AlergonCellLabelUI
+                      label={allergenPathToLabel(r.alergonim_2)}
+                      path={r.alergonim_2}
+                      mode={r.alergonim_2_mode}
+                      locked={r.alergonim_2_locked}
+                      onLabelChange={(lab) => setAlergonLabel(realIndex, 2, lab)}
+                      onManualPathChange={(p) => setAlergonManualPath(realIndex, 2, p)}
+                      onUnlock={() => unlockAlergon(realIndex, 2)}
+                      disabled={busy}
+                    />
+                  </td>
+
+                  <td>
+                    <AlergonCellLabelUI
+                      label={allergenPathToLabel(r.alergonim_3)}
+                      path={r.alergonim_3}
+                      mode={r.alergonim_3_mode}
+                      locked={r.alergonim_3_locked}
+                      onLabelChange={(lab) => setAlergonLabel(realIndex, 3, lab)}
+                      onManualPathChange={(p) => setAlergonManualPath(realIndex, 3, p)}
+                      onUnlock={() => unlockAlergon(realIndex, 3)}
+                      disabled={busy}
+                    />
+                  </td>
+
+                  <td>
+                    <button className="dilenBtn" onClick={() => removeRow(realIndex)} disabled={busy}>
+                      Delete
                     </button>
-                  </div>
-                  <div className="dilenSmall">
-                    Combined:{" "}
-                    <span className="dilenCode">
-                      {combineLines(r.line_1, r.line_2, r.line_3) || "(empty)"}
-                    </span>
-                  </div>
-                </td>
+                  </td>
+                </tr>
+              ))}
 
-                <td>
-                  <OptionCell
-                    preset={r.option_1_preset}
-                    custom={r.option_1_custom}
-                    onPreset={(v) => updateCell(realIndex, "option_1_preset", v)}
-                    onCustom={(v) => updateCell(realIndex, "option_1_custom", v)}
-                    disabled={busy}
-                  />
-                </td>
-
-                <td>
-                  <OptionCell
-                    preset={r.option_2_preset}
-                    custom={r.option_2_custom}
-                    onPreset={(v) => updateCell(realIndex, "option_2_preset", v)}
-                    onCustom={(v) => updateCell(realIndex, "option_2_custom", v)}
-                    disabled={busy}
-                  />
-                </td>
-
-                <td>
-                  <OptionCell
-                    preset={r.option_3_preset}
-                    custom={r.option_3_custom}
-                    onPreset={(v) => updateCell(realIndex, "option_3_preset", v)}
-                    onCustom={(v) => updateCell(realIndex, "option_3_custom", v)}
-                    disabled={busy}
-                  />
-                </td>
-
-                <td>
-                  <input
-                    className="dilenInp"
-                    value={r.price}
-                    onChange={(e) => updateCell(realIndex, "price", e.target.value)}
-                    disabled={busy}
-                  />
-                </td>
-
-                <td>
-                  <select
-                    className="dilenSel"
-                    value={r.unit}
-                    onChange={(e) => updateCell(realIndex, "unit", e.target.value)}
-                    disabled={busy}
-                  >
-                    <option value="">(empty)</option>
-                    {UNIT_OPTIONS.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-
-                <td className="dilenCenter">
-                  <input
-                    type="checkbox"
-                    checked={!!r.alergonim_1}
-                    onChange={(e) => updateCell(realIndex, "alergonim_1", e.target.checked)}
-                    disabled={busy}
-                  />
-                </td>
-
-                <td className="dilenCenter">
-                  <input
-                    type="checkbox"
-                    checked={!!r.alergonim_2}
-                    onChange={(e) => updateCell(realIndex, "alergonim_2", e.target.checked)}
-                    disabled={busy}
-                  />
-                </td>
-
-                <td className="dilenCenter">
-                  <input
-                    type="checkbox"
-                    checked={!!r.alergonim_3}
-                    onChange={(e) => updateCell(realIndex, "alergonim_3", e.target.checked)}
-                    disabled={busy}
-                  />
-                </td>
-
-                <td>
-                  <button className="dilenBtn" onClick={() => removeRow(realIndex)} disabled={busy}>
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-
-            {viewRows.length === 0 && (
-              <tr>
-                <td colSpan={16} style={{ padding: 12, opacity: 0.85 }}>
-                  No results for: <span className="dilenCode">{search}</span>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              {viewRows.length === 0 && (
+                <tr>
+                  <td colSpan={17} style={{ padding: 12, opacity: 0.85 }}>
+                    No results for: <span className="dilenCode">{search}</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <p style={{ marginTop: 10, opacity: 0.85 }}>
@@ -914,28 +1144,23 @@ export default function App() {
   );
 }
 
-function Th({ children }) {
-  return <th>{children}</th>;
+function Th({ children, className }) {
+  return <th className={className}>{children}</th>;
 }
 
-function SortTh({ label, col, onSort, mark }) {
+function SortTh({ label, col, onSort, mark, className }) {
   return (
-    <th className="dilenSortTh" onClick={() => onSort(col)} title="Click to sort">
+    <th className={`dilenSortTh ${className || ""}`} onClick={() => onSort(col)} title="Click to sort">
       {label}
       {mark(col)}
     </th>
   );
 }
 
-function OptionCell({ preset, custom, onPreset, onCustom, disabled }) {
+function OptionCell({ preset, custom, onChange, disabled }) {
   return (
-    <div style={{ display: "grid", gap: 6, minWidth: 180 }}>
-      <select
-        className="dilenSel"
-        value={preset}
-        onChange={(e) => onPreset(e.target.value)}
-        disabled={disabled}
-      >
+    <div className="optionCell">
+      <select className="dilenSel" value={preset} onChange={(e) => onChange(e.target.value, custom)} disabled={disabled}>
         {OPTION_PRESETS.map((p) => (
           <option key={p} value={p}>
             {p === "" ? "(empty)" : p}
@@ -947,9 +1172,65 @@ function OptionCell({ preset, custom, onPreset, onCustom, disabled }) {
         className="dilenInp"
         placeholder="custom (overrides preset)"
         value={custom}
-        onChange={(e) => onCustom(e.target.value)}
+        onChange={(e) => onChange(preset, e.target.value)}
         disabled={disabled}
       />
+    </div>
+  );
+}
+
+/**
+ * ✅ UI shows: label (גלוטן/טבעוני/צמחוני/ידני)
+ * ✅ CSV/DB keeps: full PATH
+ */
+function AlergonCellLabelUI({
+  label,
+  path,
+  mode,
+  locked,
+  onLabelChange,
+  onManualPathChange,
+  onUnlock,
+  disabled,
+}) {
+  return (
+    <div className="dilenAlerWrap" title={path ? path : ""}>
+      <div className="dilenAlerTop">
+        <select
+          className="dilenSel dilenAlerSel"
+          value={label}
+          onChange={(e) => onLabelChange(e.target.value)}
+          disabled={disabled}
+        >
+          <option value="">—</option>
+          {ALERGEN_LIST.map((a) => (
+            <option key={a.key} value={a.label}>
+              {a.label}
+            </option>
+          ))}
+          <option value="ידני">ידני</option>
+        </select>
+
+        {locked ? (
+          <button className="dilenBtnTiny" onClick={onUnlock} disabled={disabled} title="Unlock (return to auto)">
+            🔒
+          </button>
+        ) : (
+          <span className="dilenLock" title="Auto mode">
+            ✨
+          </span>
+        )}
+      </div>
+
+      {label === "ידני" && (
+        <input
+          className="dilenInp dilenAlerManual"
+          value={path}
+          placeholder="Manual path..."
+          onChange={(e) => onManualPathChange(e.target.value)}
+          disabled={disabled}
+        />
+      )}
     </div>
   );
 }
