@@ -240,7 +240,8 @@ function emptyRow() {
   return {
     id: null,
     client_id: makeClientId(),
-    is_selected: false, // default unchecked
+
+    is_selected: false, // checkbox
 
     line_1: "",
     line_2: "",
@@ -269,7 +270,8 @@ function emptyRow() {
     alergonim_2_mode: "auto",
     alergonim_3_mode: "auto",
 
-    is_new: false, // only one allowed at a time
+    is_new: false, // only one allowed at a time (draft row)
+    dirty: false, // ✅ changed locally but not saved to server
   };
 }
 
@@ -329,6 +331,10 @@ function normalizeImportedRow(raw) {
 
   // always have a client id
   r.client_id = r.client_id || makeClientId();
+
+  // imported file = local changes (not yet saved)
+  r.dirty = true;
+  r.is_new = !r.id;
 
   return r;
 }
@@ -467,7 +473,7 @@ export default function App() {
 function AdminPanel({ token, onLogout }) {
   const [rows, setRows] = useState(() => {
     const r = emptyRow();
-    r.is_new = true; // first row is “new draft”
+    r.is_new = true; // draft row
     return [r];
   });
 
@@ -493,12 +499,25 @@ function AdminPanel({ token, onLogout }) {
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [restorePickId, setRestorePickId] = useState("");
 
+  // ✅ Duplicates filter (only by line_1+line_2+line_3)
+  const [dupOnly, setDupOnly] = useState(false);
+  const [dupClientIds, setDupClientIds] = useState([]);
+
   const allChecked = useMemo(() => rows.length > 0 && rows.every((r) => !!r.is_selected), [rows]);
   const noneChecked = useMemo(() => rows.every((r) => !r.is_selected), [rows]);
   const mixedChecked = useMemo(() => !(allChecked || noneChecked), [allChecked, noneChecked]);
 
   // Pending new row (only 1 allowed)
   const pendingNewRow = useMemo(() => rows.find((r) => r.is_new && !r.id), [rows]);
+
+  const dirtyCount = useMemo(
+    () => rows.filter((r) => !!r.dirty && !!r.id && !r.is_new).length,
+    [rows]
+  );
+  const newCount = useMemo(
+    () => rows.filter((r) => r.is_new && !r.id && !isRowEmptyForDB(r)).length,
+    [rows]
+  );
 
   function showBalloon(clientId) {
     setBalloonForClientId(clientId);
@@ -512,10 +531,19 @@ function AdminPanel({ token, onLogout }) {
     };
   }, []);
 
+  function markDirty(row) {
+    // new row always dirty
+    if (row.is_new && !row.id) return true;
+    // existing row -> dirty when changed
+    return true;
+  }
+
   function updateCell(index, key, value) {
     setRows((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], [key]: value };
+      const row = { ...next[index], [key]: value };
+      row.dirty = markDirty(row);
+      next[index] = row;
       return next;
     });
   }
@@ -539,6 +567,7 @@ function AdminPanel({ token, onLogout }) {
         row[modeKey] = "auto";
       }
 
+      row.dirty = markDirty(row);
       next[rowIndex] = row;
       return next;
     });
@@ -575,6 +604,7 @@ function AdminPanel({ token, onLogout }) {
         row[modeKey] = "auto";
       }
 
+      row.dirty = markDirty(row);
       next[rowIndex] = row;
       return next;
     });
@@ -594,6 +624,7 @@ function AdminPanel({ token, onLogout }) {
       row[lockKey] = true;
       row[modeKey] = "manual";
 
+      row.dirty = markDirty(row);
       next[rowIndex] = row;
       return next;
     });
@@ -617,6 +648,7 @@ function AdminPanel({ token, onLogout }) {
       );
       row[valKey] = allergenFromNote(note);
 
+      row.dirty = markDirty(row);
       next[rowIndex] = row;
       return next;
     });
@@ -669,7 +701,13 @@ function AdminPanel({ token, onLogout }) {
       : "האם לבטל שמירה לכל השורות?\nזה ידרוס את המצב הקיים של כל השורות.";
     const ok = window.confirm(msg);
     if (!ok) return;
-    setRows((prev) => prev.map((r) => ({ ...r, is_selected: !!nextValue })));
+    setRows((prev) =>
+      prev.map((r) => {
+        const nr = { ...r, is_selected: !!nextValue };
+        nr.dirty = markDirty(nr);
+        return nr;
+      })
+    );
   }
 
   /** Add NEW row (only 1 unsaved at a time), NEW row at TOP */
@@ -680,6 +718,7 @@ function AdminPanel({ token, onLogout }) {
     }
     const r = emptyRow();
     r.is_new = true;
+    r.dirty = true;
     setRows((prev) => [r, ...prev.map((x) => ({ ...x, is_new: false }))]);
   }
 
@@ -691,14 +730,39 @@ function AdminPanel({ token, onLogout }) {
         const fresh = emptyRow();
         fresh.client_id = r.client_id;
         fresh.is_new = true;
+        fresh.dirty = true;
         return fresh;
       })
     );
   }
 
-  /** Delete row (removes from UI). Server delete happens on “Save DB (sync)” */
-  function deleteRow(index) {
-    if (!window.confirm(`למחוק שורה #${index + 1}?`)) return;
+  /** ✅ Delete row: remove locally AND (if has id) delete on server */
+  async function deleteRow(index) {
+    const r = rows[index];
+    if (!r) return;
+
+    const ok = window.confirm("למחוק את השורה הזו?\nהמחיקה היא קבועה.");
+    if (!ok) return;
+
+    // if row exists in server -> delete there
+    if (r.id) {
+      setBusy(true);
+      try {
+        await fetchJson(DB_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: "delete_one", id: Number(r.id) }),
+        });
+      } catch (e) {
+        alert(`שגיאת מחיקה בשרת: ${e?.message || e}`);
+        setBusy(false);
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    // remove from UI
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
@@ -713,8 +777,8 @@ function AdminPanel({ token, onLogout }) {
       const imported = (parsed.data || []).map((r) => normalizeImportedRow(r));
       setRows(
         imported.length
-          ? imported.map((x) => ({ ...x, is_new: false }))
-          : [Object.assign(emptyRow(), { is_new: true })]
+          ? imported.map((x) => ({ ...x, is_new: !x.id, dirty: true }))
+          : [Object.assign(emptyRow(), { is_new: true, dirty: true })]
       );
       return;
     }
@@ -727,8 +791,8 @@ function AdminPanel({ token, onLogout }) {
       const imported = (json || []).map((r) => normalizeImportedRow(r));
       setRows(
         imported.length
-          ? imported.map((x) => ({ ...x, is_new: false }))
-          : [Object.assign(emptyRow(), { is_new: true })]
+          ? imported.map((x) => ({ ...x, is_new: !x.id, dirty: true }))
+          : [Object.assign(emptyRow(), { is_new: true, dirty: true })]
       );
       return;
     }
@@ -800,15 +864,61 @@ function AdminPanel({ token, onLogout }) {
         headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
       });
 
-      const imported = (data.rows || [])
-        .map((r) => normalizeImportedRow(r))
-        .map((r) => ({ ...r, is_new: false }));
+      const imported = (data.rows || []).map((raw) => {
+        // convert server row -> UI row
+        const r = emptyRow();
+        r.id = raw.id ? Number(raw.id) : null;
+        r.is_selected = toBool(raw.is_selected, false);
+
+        r.line_1 = String(raw.line_1 ?? "");
+        r.line_2 = String(raw.line_2 ?? "");
+        r.line_3 = String(raw.line_3 ?? "");
+        r.english_name = String(raw.english_name ?? "");
+        r.price = String(raw.price ?? "");
+        r.unit = String(raw.unit ?? "");
+
+        // options loaded into custom (preset stays empty)
+        r.option_1_custom = String(raw.option_1 ?? "");
+        r.option_2_custom = String(raw.option_2 ?? "");
+        r.option_3_custom = String(raw.option_3 ?? "");
+
+        // allergens (paths)
+        r.alergonim_1 = String(raw.alergonim_1 ?? "");
+        r.alergonim_2 = String(raw.alergonim_2 ?? "");
+        r.alergonim_3 = String(raw.alergonim_3 ?? "");
+
+        // lock if has value
+        r.alergonim_1_locked = !!cleanSpaces(r.alergonim_1);
+        r.alergonim_2_locked = !!cleanSpaces(r.alergonim_2);
+        r.alergonim_3_locked = !!cleanSpaces(r.alergonim_3);
+
+        r.alergonim_1_mode =
+          r.alergonim_1_locked && allergenPathToLabel(r.alergonim_1) === "ידני" ? "manual" : "auto";
+        r.alergonim_2_mode =
+          r.alergonim_2_locked && allergenPathToLabel(r.alergonim_2) === "ידני" ? "manual" : "auto";
+        r.alergonim_3_mode =
+          r.alergonim_3_locked && allergenPathToLabel(r.alergonim_3) === "ידני" ? "manual" : "auto";
+
+        r.is_new = false;
+        r.dirty = false;
+
+        // keep client_id
+        r.client_id = makeClientId();
+        return r;
+      });
 
       const finalRows = forceUncheckOnLoad
         ? imported.map((r) => ({ ...r, is_selected: false }))
         : imported;
 
-      setRows(finalRows.length ? finalRows : [Object.assign(emptyRow(), { is_new: true })]);
+      // keep a draft row at top (empty)
+      const draft = emptyRow();
+      draft.is_new = true;
+      draft.dirty = false;
+
+      setRows([draft, ...finalRows]);
+      setDupOnly(false);
+      setDupClientIds([]);
     } catch (e) {
       alert(`DB load error: ${e?.message || e}`);
     } finally {
@@ -816,37 +926,103 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
-  /** Save DB (SYNC) */
-  async function saveToDBSync() {
+  /** ✅ Save ALL changes: update changed rows + add new rows (NO DELETE EVER) */
+  async function saveToDBAllChanges() {
+    const toSave = [];
+    const toSaveIndexes = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+
+      // skip totally empty draft/new
+      if ((r.is_new && !r.id) || !r.id) {
+        if (isRowEmptyForDB(r)) continue;
+      }
+
+      // existing: only if dirty
+      if (r.id && !r.is_new && !r.dirty) continue;
+
+      // new: save if not empty
+      if (!r.id && isRowEmptyForDB(r)) continue;
+
+      toSave.push(dbPayload[i]);
+      toSaveIndexes.push(i);
+    }
+
+    if (toSave.length === 0) {
+      alert("אין שינויים לשמירה.");
+      return;
+    }
+
     setBusy(true);
     try {
-      const rowsToSave = dbPayload
-        .map((r) => ({ ...r }))
-        .filter((r) => {
-          const ui = rows.find((x) => x.client_id === r.client_id);
-          return ui ? !isRowEmptyForDB(ui) : true;
-        });
-
       const data = await fetchJson(DB_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: "save", rows: rowsToSave, sync_delete: true }),
+        body: JSON.stringify({ action: "save", rows: toSave, sync_delete: false }),
       });
 
-      if (data?.id_map && typeof data.id_map === "object") {
-        setRows((prev) =>
-          prev.map((row) => {
-            if (row.id) return { ...row, is_new: false };
-            const newId = data.id_map[row.client_id];
-            if (!newId) return row;
-            return { ...row, id: Number(newId), is_new: false };
-          })
-        );
-      }
+      // Apply new IDs (id_map is by client_id)
+      setRows((prev) =>
+        prev.map((row, idx) => {
+          // if row already has id -> just clear dirty if it was in saved set
+          const wasSaved = toSaveIndexes.includes(idx);
 
-      alert(`נשמר ✅\nSaved: ${data.saved ?? ""}\nDeleted: ${data.deleted ?? 0}`);
+          if (row.id) {
+            return wasSaved ? { ...row, dirty: false, is_new: false } : row;
+          }
+
+          // new row -> assign id if came back
+          const newId = data?.id_map?.[row.client_id];
+          if (!newId) return wasSaved ? { ...row, dirty: false } : row;
+
+          return {
+            ...row,
+            id: Number(newId),
+            is_new: false,
+            dirty: false,
+          };
+        })
+      );
+
+      alert(`נשמר ✅\nSaved: ${data.saved ?? ""}`);
     } catch (e) {
       alert(`DB save error: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** ✅ Update ONE existing row (עדכן) */
+  async function updateSingleRow(index) {
+    const rUI = rows[index];
+    if (!rUI?.id) return;
+
+    if (isRowEmptyForDB(rUI)) {
+      alert("השורה ריקה (כל השדות ריקים). אם רוצים למחוק — השתמש בכפתור מחיקה.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const payload = dbPayload[index];
+
+      await fetchJson(DB_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "save", rows: [payload], sync_delete: false }),
+      });
+
+      setRows((prev) =>
+        prev.map((row, i) => {
+          if (i !== index) return row;
+          return { ...row, dirty: false };
+        })
+      );
+
+      alert("עודכן ✅");
+    } catch (e) {
+      alert(`Update error: ${e?.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -881,7 +1057,7 @@ function AdminPanel({ token, onLogout }) {
       setRows((prev) =>
         prev.map((row, i) => {
           if (i !== index) return row;
-          return { ...row, id: Number(newId), is_new: false };
+          return { ...row, id: Number(newId), is_new: false, dirty: false };
         })
       );
     } catch (e) {
@@ -947,15 +1123,98 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
+  /** ✅ Delete ALL DB (danger) with confirm + password */
+  async function deleteAllDB() {
+    const ok = window.confirm(
+      "⚠️ מחיקת מסד נתונים!\n\n" +
+        "פעולה זו תמחק את כל הכרטיסים בשרת לצמיתות.\n" +
+        "אין אפשרות שחזור (אלא אם יש גיבוי).\n\n" +
+        "האם אתה בטוח שברצונך להמשיך?"
+    );
+    if (!ok) return;
+
+    const pass = window.prompt("הכנס סיסמת מנהל למחיקה מלאה:");
+    if (!pass) return;
+
+    setBusy(true);
+    try {
+      const data = await fetchJson(DB_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "delete_all", admin_password: pass }),
+      });
+
+      // reset UI with a fresh draft row
+      const draft = emptyRow();
+      draft.is_new = true;
+
+      setRows([draft]);
+      setDupOnly(false);
+      setDupClientIds([]);
+
+      alert(`נמחק ✅\nDeleted: ${data.deleted ?? ""}`);
+    } catch (e) {
+      alert(`שגיאת מחיקה: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** ✅ Duplicates (only line_1+line_2+line_3) */
+  function dupKeyFromRow(r) {
+    const l1 = normalizeForSearch(r.line_1);
+    const l2 = normalizeForSearch(r.line_2);
+    const l3 = normalizeForSearch(r.line_3);
+    if (!l1 && !l2 && !l3) return "";
+    return `${l1}||${l2}||${l3}`;
+  }
+
+  function checkDuplicates() {
+    const map = new Map(); // key -> array of indexes
+    for (let i = 0; i < rows.length; i++) {
+      const key = dupKeyFromRow(rows[i]);
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(i);
+    }
+
+    const ids = [];
+    for (const idxs of map.values()) {
+      if (idxs.length >= 2) {
+        for (const i of idxs) {
+          const cid = rows[i]?.client_id;
+          if (cid) ids.push(cid);
+        }
+      }
+    }
+
+    const uniqueIds = Array.from(new Set(ids));
+
+    if (uniqueIds.length === 0) {
+      alert("לא נמצאו כפילויות");
+      setDupOnly(false);
+      setDupClientIds([]);
+      return;
+    }
+
+    setDupOnly(true);
+    setDupClientIds(uniqueIds);
+  }
+
   /** Sorting & view */
   const viewRows = useMemo(() => {
     const q = normalizeForSearch(search);
     let list = rows.map((row, index) => ({ row, index }));
 
+    // ✅ show only duplicates (optional)
+    if (dupOnly && dupClientIds.length) {
+      const set = new Set(dupClientIds);
+      list = list.filter(({ row }) => set.has(row.client_id));
+    }
+
     if (q) {
       list = list.filter(({ row }) => {
         const hay = [
-          row.id ? String(row.id) : "",
           row.is_selected ? "true" : "false",
           row.line_1,
           row.line_2,
@@ -1011,7 +1270,7 @@ function AdminPanel({ token, onLogout }) {
     // Keep NEW row at top always
     list = list.sort((a, b) => (b.row.is_new ? 1 : 0) - (a.row.is_new ? 1 : 0));
     return list;
-  }, [rows, search, sortKey, sortDir]);
+  }, [rows, search, sortKey, sortDir, dupOnly, dupClientIds]);
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1029,7 +1288,7 @@ function AdminPanel({ token, onLogout }) {
   return (
     <div className="dilenCardsApp" dir={rtl ? "rtl" : "ltr"}>
       <style>{`
-        :root{ --bd:#d9d9d9; --bg:#ffffff; --warn:#b00020; }
+        :root{ --bd:#d9d9d9; --bg:#ffffff; --warn:#b00020; --ok:#0b63ff; }
         .dilenCardsApp{
           padding:12px; background:var(--bg); color:#111;
           font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow-x:auto;
@@ -1051,12 +1310,18 @@ function AdminPanel({ token, onLogout }) {
           padding:6px 10px; border-radius:8px; border:1px solid #0b63ff; background:#0b63ff;
           cursor:pointer; color:#fff !important; font-size:13px; font-weight:900; white-space:nowrap;
         }
+        .dilenBtnDanger{
+          padding:6px 10px; border-radius:8px; border:1px solid #b00020; background:#fff;
+          cursor:pointer; color:#b00020; font-size:13px; font-weight:900; white-space:nowrap;
+        }
         .dilenBtnTiny{
           padding:2px 6px; border-radius:8px; border:1px solid var(--bd);
           background:#fff; cursor:pointer; font-size:11px; font-weight:900; white-space:nowrap;
           position:relative;
         }
-        .dilenBtn:disabled,.dilenBtnPrimary:disabled,.dilenBtnTiny:disabled{ opacity:0.6; cursor:not-allowed; }
+        .dilenBtn:disabled,.dilenBtnPrimary:disabled,.dilenBtnTiny:disabled,.dilenBtnDanger:disabled{
+          opacity:0.6; cursor:not-allowed;
+        }
 
         .dilenInp,.dilenSel{
           height:26px; padding:3px 6px; font-size:12px;
@@ -1078,7 +1343,7 @@ function AdminPanel({ token, onLogout }) {
 
         table.dilenTable{
           width:100%; border-collapse:collapse; table-layout:fixed;
-          min-width:1200px; background:#fff;
+          min-width:1100px; background:#fff;
         }
 
         .dilenTable thead th{
@@ -1105,9 +1370,9 @@ function AdminPanel({ token, onLogout }) {
         .dilenEnglishRow button{ padding:4px 6px; font-size:11px; }
 
         .dilenSmall{ font-size:11px; opacity:0.75; margin-top:4px; line-height:1.2; }
+        .warnText{ color:var(--warn); font-weight:900; }
 
         /* column sizes */
-        .col-id{ width:55px; }
         .col-num{ width:45px; }
         .col-save{ width:55px; }
         .col-line{ width:140px; }
@@ -1116,7 +1381,7 @@ function AdminPanel({ token, onLogout }) {
         .col-price{ width:70px; }
         .col-unit{ width:90px; }
         .col-aler{ width:65px; }
-        .col-actions{ width:140px; }
+        .col-actions{ width:190px; }
 
         .optionCell{ display:grid; gap:4px; }
 
@@ -1125,12 +1390,6 @@ function AdminPanel({ token, onLogout }) {
         .dilenAlerSel{ height:22px; font-size:11px; padding:1px 4px; }
         .dilenAlerManual{ height:22px; font-size:10px; padding:1px 4px; }
         .dilenLock{ font-size:11px; opacity:0.65; line-height:1; }
-
-        .rowNewBadge{
-          display:inline-flex; align-items:center; gap:6px;
-          padding:2px 8px; border-radius:999px; border:1px solid #ffd18a; background:#fff4e5;
-          font-size:11px; font-weight:900;
-        }
 
         .balloon{
           position:absolute;
@@ -1157,7 +1416,14 @@ function AdminPanel({ token, onLogout }) {
           border-top-color:#111;
         }
 
-        .warnText{ color:var(--warn); font-weight:900; }
+        .dirtyDot{
+          display:inline-block;
+          width:8px; height:8px;
+          border-radius:999px;
+          background:#ffb300;
+          margin-inline-start:6px;
+          vertical-align:middle;
+        }
 
         /* force light form controls even if device is dark */
         .dilenCardsApp, .dilenCardsApp * { color-scheme: light !important; }
@@ -1179,8 +1445,9 @@ function AdminPanel({ token, onLogout }) {
             + כרטיס חדש
           </button>
 
-          <button className="dilenBtn" onClick={saveToDBSync} disabled={busy}>
-            שמור מסד נתונים בשרת (sync)
+          <button className="dilenBtn" onClick={saveToDBAllChanges} disabled={busy}>
+            שמור מסד נתונים בשרת (עדכון/הוספה)
+            {dirtyCount + newCount > 0 ? <span className="dirtyDot" /> : null}
           </button>
 
           <button className="dilenBtn" onClick={downloadCSV} disabled={busy}>
@@ -1202,6 +1469,24 @@ function AdminPanel({ token, onLogout }) {
             {busy ? "Working..." : "תרגום לאנגלית - אוטומטי להכל"}
           </button>
 
+          <button className="dilenBtn" onClick={checkDuplicates} disabled={busy}>
+            בדוק כפילויות
+          </button>
+
+          {dupOnly ? (
+            <button
+              className="dilenBtn"
+              onClick={() => {
+                setDupOnly(false);
+                setDupClientIds([]);
+              }}
+              disabled={busy}
+              title="חזרה לתצוגה מלאה"
+            >
+              בטל כפילויות
+            </button>
+          ) : null}
+
           <button className="dilenBtn" onClick={backupCreate} disabled={busy}>
             גבה עכשיו
           </button>
@@ -1210,20 +1495,18 @@ function AdminPanel({ token, onLogout }) {
             שחזר...
           </button>
 
+          <button
+            className="dilenBtnDanger"
+            onClick={deleteAllDB}
+            disabled={busy}
+            title="מחיקה מלאה"
+          >
+            ⚠️ מחק מסד נתונים
+          </button>
+
           <button className="dilenBtn" onClick={onLogout} disabled={busy}>
             Logout
           </button>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <input
-              className="dilenInp"
-              style={{ width: 220 }}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="חפש..."
-              disabled={busy}
-            />
-          </div>
         </div>
 
         <div className="dilenToggles">
@@ -1270,6 +1553,22 @@ function AdminPanel({ token, onLogout }) {
             <input type="checkbox" checked={rtl} onChange={(e) => setRtl(e.target.checked)} />
             סדר עמודות מימין לשמאל
           </label>
+
+          {/* ✅ Search moved next to "שינויים לא שמורים" and made bigger */}
+          <div className="dilenToggle" style={{ borderStyle: "dashed", gap: 10 }}>
+            <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
+            <span className="dilenCode">{dirtyCount + newCount}</span>
+
+            {/* Search placed LEFT of the changes counter (in RTL it appears on the left) */}
+            <input
+              className="dilenInp"
+              style={{ width: 320, height: 34, fontSize: 14, borderRadius: 10 }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="חפש..."
+              disabled={busy}
+            />
+          </div>
         </div>
       </div>
 
@@ -1278,7 +1577,6 @@ function AdminPanel({ token, onLogout }) {
           <table className="dilenTable">
             <thead>
               <tr>
-                <Th className="col-id">ID</Th>
                 <Th className="col-num">#</Th>
                 <SortTh
                   className="col-save"
@@ -1387,15 +1685,6 @@ function AdminPanel({ token, onLogout }) {
 
                 return (
                   <tr key={r.client_id || realIndex}>
-                    <td className="dilenCenter">
-                      <span className="dilenCode">{r.id ? r.id : "-"}</span>
-                      {r.is_new ? (
-                        <div style={{ marginTop: 6 }}>
-                          <span className="rowNewBadge">NEW</span>
-                        </div>
-                      ) : null}
-                    </td>
-
                     <td className="dilenCenter">{idxVisible + 1}</td>
 
                     <td className="dilenCenter">
@@ -1405,6 +1694,7 @@ function AdminPanel({ token, onLogout }) {
                         onChange={(e) => updateCell(realIndex, "is_selected", e.target.checked)}
                         disabled={busy}
                       />
+                      {r.dirty ? <span className="dirtyDot" title="לא נשמר"></span> : null}
                     </td>
 
                     <td>
@@ -1569,13 +1859,14 @@ function AdminPanel({ token, onLogout }) {
                       <div
                         style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
                       >
+                        {/* NEW row (no ID shown, but Add button exists) */}
                         {r.is_new && !r.id ? (
                           <>
                             <button
                               className="dilenBtnTiny"
                               onClick={() => addThisNewRow(realIndex)}
                               disabled={busy}
-                              title="Save only this row to DB and get an ID"
+                              title="הוסף שורה חדשה לשרת"
                               style={{ position: "relative" }}
                             >
                               {balloonForClientId === r.client_id ? (
@@ -1593,12 +1884,24 @@ function AdminPanel({ token, onLogout }) {
                           </>
                         ) : null}
 
+                        {/* Existing row: עדכן */}
+                        {!r.is_new && r.id ? (
+                          <button
+                            className="dilenBtnTiny"
+                            onClick={() => updateSingleRow(realIndex)}
+                            disabled={busy || !r.dirty}
+                            title={r.dirty ? "עדכן שורה זו בשרת" : "אין שינויים"}
+                          >
+                            עדכן
+                          </button>
+                        ) : null}
+
                         <button
                           className="dilenBtnTiny"
                           onClick={() => deleteRow(realIndex)}
                           disabled={busy}
                         >
-                          Delete
+                          מחק
                         </button>
                       </div>
                     </td>
@@ -1608,7 +1911,7 @@ function AdminPanel({ token, onLogout }) {
 
               {viewRows.length === 0 && (
                 <tr>
-                  <td colSpan={17} style={{ padding: 12, opacity: 0.85 }}>
+                  <td colSpan={16} style={{ padding: 12, opacity: 0.85 }}>
                     No results for: <span className="dilenCode">{search}</span>
                   </td>
                 </tr>
@@ -1682,7 +1985,9 @@ function AdminPanel({ token, onLogout }) {
                       <div style={{ fontWeight: 900 }}>
                         #{b.id} — {b.created_at}
                       </div>
-                      <div style={{ fontSize: 12, opacity: 0.75 }}>Rows: {b.row_count}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>
+                        Rows: {b.row_count ?? b.rows_count}
+                      </div>
                     </div>
                   </label>
                 ))
