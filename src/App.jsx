@@ -14,6 +14,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
+import CardDemoModal from "./components/CardDemoModal.jsx";
 
 /**
  * ✅ API base
@@ -299,6 +300,7 @@ function emptyRow() {
     client_id: makeClientId(),
 
     is_selected: false,
+    is_frozen: false,
 
     line_1: "",
     line_2: "",
@@ -529,6 +531,8 @@ function AdminPanel({ token, onLogout }) {
     return [r];
   });
 
+  const DEMO_CARD_BG = `${import.meta.env.BASE_URL}card_bg.png`;
+
   const [busy, setBusy] = useState(false);
   const [rtl, setRtl] = useState(true);
 
@@ -551,6 +555,11 @@ function AdminPanel({ token, onLogout }) {
   const [dupOnly, setDupOnly] = useState(false);
   const [dupClientIds, setDupClientIds] = useState([]);
 
+  const [showFrozenOnly, setShowFrozenOnly] = useState(false);
+
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [demoIndex, setDemoIndex] = useState(-1);
+
   const allChecked = useMemo(() => rows.length > 0 && rows.every((r) => !!r.is_selected), [rows]);
   const noneChecked = useMemo(() => rows.every((r) => !r.is_selected), [rows]);
   const mixedChecked = useMemo(() => !(allChecked || noneChecked), [allChecked, noneChecked]);
@@ -565,6 +574,7 @@ function AdminPanel({ token, onLogout }) {
     () => rows.filter((r) => r.is_new && !r.id && !isRowEmptyForDB(r)).length,
     [rows]
   );
+  const frozenCount = useMemo(() => rows.filter((r) => !!r.id && !!r.is_frozen).length, [rows]);
 
   function showBalloon(clientId) {
     setBalloonForClientId(clientId);
@@ -705,6 +715,7 @@ function AdminPanel({ token, onLogout }) {
       id: r.id ?? null,
       client_id: r.client_id,
       is_selected: r.is_selected ? 1 : 0,
+      is_frozen: r.is_frozen ? 1 : 0,
       line_1: r.line_1,
       line_2: r.line_2,
       line_3: r.line_3,
@@ -728,6 +739,7 @@ function AdminPanel({ token, onLogout }) {
   const exportRows = useMemo(() => {
     return rows
       .filter((r) => !!r.is_selected)
+      .filter((r) => !r.is_frozen)
       .filter((r) => !isRowEmptyForDB(r))
       .map((r) => ({
         line_1: r.line_1,
@@ -1005,6 +1017,7 @@ function AdminPanel({ token, onLogout }) {
         const r = emptyRow();
         r.id = raw.id ? Number(raw.id) : null;
         r.is_selected = toBool(raw.is_selected, false);
+        r.is_frozen = toBool(raw.is_frozen, false);
 
         r.line_1 = String(raw.line_1 ?? "");
         r.line_2 = String(raw.line_2 ?? "");
@@ -1136,6 +1149,48 @@ function AdminPanel({ token, onLogout }) {
       alert("עודכן ✅");
     } catch (e) {
       alert(`Update error: ${e?.message || e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function setFreezeRow(index, nextFrozen) {
+    const rUI = rows[index];
+    if (!rUI?.id) {
+      alert("אפשר להקפיא רק כרטיס שכבר נשמר וקיבל ID (שורה חדשה עדיין לא).");
+      return;
+    }
+
+    const msg = nextFrozen
+      ? "להקפיא את הכרטיס?\n\nהכרטיס יוסתר מהתצוגה הרגילה ולא ייכלל בייצוא.\nתוכל לראות אותו רק דרך 'הראה כרטיסיות בהקפאה'."
+      : "לבטל הקפאה?\n\nהכרטיס יחזור לתצוגה הרגילה ויוכל להיכלל בייצוא.";
+    if (!window.confirm(msg)) return;
+
+    setBusy(true);
+    try {
+      const payload = { ...dbPayload[index], is_frozen: nextFrozen ? 1 : 0 };
+
+      await fetchJson(DB_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: "save", rows: [payload], sync_delete: false }),
+      });
+
+      setRows((prev) =>
+        prev.map((row, i) =>
+          i !== index
+            ? row
+            : {
+                ...row,
+                is_frozen: nextFrozen,
+                // if freezing, also uncheck it (usually desired)
+                is_selected: nextFrozen ? false : row.is_selected,
+                dirty: false,
+                is_new: false,
+              }
+        )
+      );
+    } catch (e) {
+      alert(`Freeze error: ${e?.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -1317,6 +1372,18 @@ function AdminPanel({ token, onLogout }) {
     const q = normalizeForSearch(search);
     let list = rows.map((row, index) => ({ row, index }));
 
+    // ✅ Freeze view filter:
+    // - Normal mode: hide frozen rows (also keep the NEW draft visible)
+    // - Frozen mode: show ONLY frozen rows (hide the new draft)
+    list = list.filter(({ row }) => {
+      if (showFrozenOnly) {
+        return !!row.is_frozen; // only frozen
+      }
+      // normal view
+      if (row.is_new && !row.id) return true; // keep draft row visible
+      return !row.is_frozen;
+    });
+
     if (dupOnly && dupClientIds.length) {
       const set = new Set(dupClientIds);
       list = list.filter(({ row }) => set.has(row.client_id));
@@ -1379,7 +1446,7 @@ function AdminPanel({ token, onLogout }) {
 
     list = list.sort((a, b) => (b.row.is_new ? 1 : 0) - (a.row.is_new ? 1 : 0));
     return list;
-  }, [rows, search, sortKey, sortDir, dupOnly, dupClientIds]);
+  }, [rows, search, sortKey, sortDir, dupOnly, dupClientIds, showFrozenOnly]);
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1580,6 +1647,21 @@ function AdminPanel({ token, onLogout }) {
 
           <button className="dilenBtn" onClick={checkDuplicates} disabled={busy}>
             בדוק כפילויות
+          </button>
+          <button
+            className="dilenBtn"
+            disabled={busy || frozenCount === 0}
+            onClick={() => {
+              const next = !showFrozenOnly;
+              const msg = next
+                ? `לעבור לתצוגת הקפאה?\n\nיוצגו ${frozenCount} כרטיסיות בהקפאה בלבד.\nכרטיסיות רגילות יוסתרו.`
+                : "לחזור לתצוגה רגילה?\n\nיוסתרו כרטיסיות בהקפאה ויוצגו הכרטיסיות הרגילות.";
+              if (!window.confirm(msg)) return;
+              setShowFrozenOnly(next);
+            }}
+            title={frozenCount === 0 ? "אין כרטיסיות בהקפאה" : `יש ${frozenCount} כרטיסיות בהקפאה`}
+          >
+            {showFrozenOnly ? "חזור לתצוגה רגילה" : `הראה כרטיסיות בהקפאה (${frozenCount})`}
           </button>
 
           {dupOnly ? (
@@ -1978,17 +2060,28 @@ function AdminPanel({ token, onLogout }) {
                               {balloonForClientId === r.client_id ? (
                                 <div className="balloon">שמור כדי להוסיף שורה חדשה</div>
                               ) : null}
-                              Add
+                              הוסף שורה
                             </button>
                             <button
                               className="dilenBtnTiny"
                               onClick={() => clearNewRow(r.client_id)}
                               disabled={busy}
                             >
-                              Clear
+                              נקה תוכן
                             </button>
                           </>
                         ) : null}
+                        <button
+                          className="dilenBtnTiny"
+                          onClick={() => {
+                            setDemoIndex(realIndex);
+                            setDemoOpen(true);
+                          }}
+                          disabled={busy}
+                          title="הצג דמו של הכרטיס"
+                        >
+                          תצוגה
+                        </button>
 
                         {!r.is_new && r.id ? (
                           <button
@@ -1998,6 +2091,27 @@ function AdminPanel({ token, onLogout }) {
                             title={r.dirty ? "עדכן שורה זו בשרת" : "אין שינויים"}
                           >
                             עדכן
+                          </button>
+                        ) : null}
+                        {!r.is_new && r.id && !showFrozenOnly && !r.is_frozen ? (
+                          <button
+                            className="dilenBtnTiny"
+                            onClick={() => setFreezeRow(realIndex, true)}
+                            disabled={busy}
+                            title="הקפא כרטיס"
+                          >
+                            הקפא כרטיס
+                          </button>
+                        ) : null}
+
+                        {!r.is_new && r.id && showFrozenOnly && r.is_frozen ? (
+                          <button
+                            className="dilenBtnTiny"
+                            onClick={() => setFreezeRow(realIndex, false)}
+                            disabled={busy}
+                            title="בטל הקפאה"
+                          >
+                            בטל הקפאה
                           </button>
                         ) : null}
 
@@ -2121,6 +2235,13 @@ function AdminPanel({ token, onLogout }) {
       <p style={{ marginTop: 10, opacity: 0.85 }}>
         API: <span className="dilenCode">{DB_ENDPOINT}</span>
       </p>
+      <CardDemoModal
+        open={demoOpen}
+        row={demoIndex >= 0 ? rows[demoIndex] : null}
+        onClose={() => setDemoOpen(false)}
+        backgroundUrl={DEMO_CARD_BG}
+        getAlergonLabel={allergenPathToLabel}
+      />
     </div>
   );
 }
