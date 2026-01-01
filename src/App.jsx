@@ -57,6 +57,47 @@ const TXT_HEADERS = [
   "@alergonim_3",
 ];
 
+const EXPORT_HEADERS = [
+  { key: "line_1", label: "שורה ראשונה" },
+  { key: "line_2", label: "שורה שניה" },
+  { key: "line_3", label: "שורה שלישית" },
+  { key: "english_name", label: "אנגלית" },
+  { key: "price", label: "מחיר" },
+  { key: "unit", label: "יחידה" },
+  { key: "option_1_custom", label: "אופציה ראשונה" },
+  { key: "option_2_custom", label: "אופציה שניה" },
+  { key: "option_3_custom", label: "אופציה שלישית" },
+  { key: "alergonim_1", label: "אלרגון_1" },
+  { key: "alergonim_2", label: "אלרגון_2" },
+  { key: "alergonim_3", label: "אלרגון_3" },
+];
+
+function exportExcel(rows, filename = "cards.xlsx") {
+  if (!rows || !rows.length) return;
+
+  // Build rows with headers
+  const data = [
+    EXPORT_HEADERS.map((h) => h.label), // header row
+    ...rows.map((row) => EXPORT_HEADERS.map((h) => row[h.key] ?? "")),
+  ];
+
+  // Create worksheet
+  const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // RTL support (important for Hebrew)
+  ws["!rtl"] = true;
+
+  // Auto column widths
+  ws["!cols"] = EXPORT_HEADERS.map(() => ({ wch: 22 }));
+
+  // Create workbook
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Cards");
+
+  // Download
+  XLSX.writeFile(wb, filename);
+}
+
 /* =========================
    ✅ ALLERGENS (UI shows LABEL, DB/TXT keeps PATH)
    ========================= */
@@ -558,7 +599,11 @@ function AdminPanel({ token, onLogout }) {
   const [showFrozenOnly, setShowFrozenOnly] = useState(false);
 
   const [demoOpen, setDemoOpen] = useState(false);
-  const [demoIndex, setDemoIndex] = useState(-1);
+  const [demoIndex, setDemoIndex] = useState(-1); // this is REAL index in rows[]
+
+  /** ✅ Modal navigation controls (separate from table search) */
+  const [demoOnlyChecked, setDemoOnlyChecked] = useState(false);
+  const [demoSearch, setDemoSearch] = useState("");
 
   const allChecked = useMemo(() => rows.length > 0 && rows.every((r) => !!r.is_selected), [rows]);
   const noneChecked = useMemo(() => rows.every((r) => !r.is_selected), [rows]);
@@ -601,6 +646,14 @@ function AdminPanel({ token, onLogout }) {
       next[index] = row;
       return next;
     });
+  }
+  function openDemoFirst() {
+    if (!demoIndices.length) {
+      alert("אין כרטיסים מתאימים לתצוגה (בדוק מסומנים ✓ / חיפוש תצוגה).");
+      return;
+    }
+    setDemoIndex(demoIndices[0]); // first allowed card
+    setDemoOpen(true);
   }
 
   /** Option change + auto allergen if not locked */
@@ -1447,6 +1500,97 @@ function AdminPanel({ token, onLogout }) {
     list = list.sort((a, b) => (b.row.is_new ? 1 : 0) - (a.row.is_new ? 1 : 0));
     return list;
   }, [rows, search, sortKey, sortDir, dupOnly, dupClientIds, showFrozenOnly]);
+  const demoIndices = useMemo(() => {
+    const q = normalizeForSearch(demoSearch);
+
+    return rows
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => {
+        // hide draft row
+        if (r.is_new && !r.id) return false;
+
+        // hide frozen
+        if (r.is_frozen) return false;
+
+        // hide empty cards
+        if (isRowEmptyForDB(r)) return false;
+
+        // only checked?
+        if (demoOnlyChecked && !r.is_selected) return false;
+
+        // search match?
+        if (q) {
+          const hay = [
+            r.line_1,
+            r.line_2,
+            r.line_3,
+            r.english_name,
+            finalOption(r.option_1_preset, r.option_1_custom),
+            finalOption(r.option_2_preset, r.option_2_custom),
+            finalOption(r.option_3_preset, r.option_3_custom),
+            r.price,
+            r.unit,
+          ]
+            .map((v) => normalizeForSearch(v))
+            .join(" | ");
+          if (!hay.includes(q)) return false;
+        }
+
+        return true;
+      })
+      .map(({ i }) => i);
+  }, [rows, demoOnlyChecked, demoSearch]);
+
+  const demoPos = useMemo(() => demoIndices.indexOf(demoIndex), [demoIndices, demoIndex]);
+
+  // 1-based page number for UI
+  const demoPage = demoPos >= 0 ? demoPos + 1 : 1;
+
+  // total pages
+  const demoTotal = demoIndices.length;
+
+  // jump to page (1-based)
+  function demoJump(page1) {
+    if (!demoIndices.length) return;
+
+    let p = Math.floor(Number(page1));
+    if (!Number.isFinite(p)) return;
+
+    // clamp to range
+    if (p < 1) p = 1;
+    if (p > demoIndices.length) p = demoIndices.length;
+
+    setDemoIndex(demoIndices[p - 1]);
+  }
+
+  function openDemoAtRealIndex(realIndex) {
+    // if this row isn't inside the filtered navigation list, jump to first available
+    const pos = demoIndices.indexOf(realIndex);
+    if (pos === -1) {
+      if (demoIndices.length === 0) {
+        alert("אין כרטיסים מתאימים לתצוגה (בדוק חיפוש/מסומנים).");
+        return;
+      }
+      setDemoIndex(demoIndices[0]);
+    } else {
+      setDemoIndex(realIndex);
+    }
+    setDemoOpen(true);
+  }
+
+  function demoPrev() {
+    if (!demoIndices.length) return;
+    const pos = demoIndices.indexOf(demoIndex);
+    const nextPos = pos <= 0 ? demoIndices.length - 1 : pos - 1; // ✅ wrap
+    setDemoIndex(demoIndices[nextPos]);
+  }
+
+  function demoNext() {
+    if (!demoIndices.length) return;
+    const pos = demoIndices.indexOf(demoIndex);
+    const nextPos = pos === -1 || pos >= demoIndices.length - 1 ? 0 : pos + 1; // ✅ wrap
+    setDemoIndex(demoIndices[nextPos]);
+  }
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1629,6 +1773,13 @@ function AdminPanel({ token, onLogout }) {
           <button className="dilenBtn" onClick={downloadCSV} disabled={busy}>
             יצוא לקובץ TXT - לדילן (רק מסומנים)
           </button>
+          <button
+            className="layoutBtn"
+            type="button"
+            onClick={() => exportExcel(rows, "cards-all.xlsx")} // single card
+          >
+            יצא ל- 📊 Excel
+          </button>
 
           <button className="dilenBtn" onClick={() => fileRef.current?.click()} disabled={busy}>
             יבוא נתונים מקובץ Excel/CSV/TXT
@@ -1745,7 +1896,7 @@ function AdminPanel({ token, onLogout }) {
             סדר עמודות מימין לשמאל
           </label>
 
-          <div className="dilenToggle" style={{ borderStyle: "dashed", gap: 10 }}>
+          <div className="dilenToggle" style={{ borderStyle: "dashed", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
             <span className="dilenCode">{dirtyCount + newCount}</span>
 
@@ -1757,8 +1908,46 @@ function AdminPanel({ token, onLogout }) {
               placeholder="חפש..."
               disabled={busy}
             />
+
+            {/* (your Step 5 controls stay here too if you added them) */}
           </div>
         </div>
+      </div>
+      <div
+        style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}
+      >
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900 }}>
+          <input
+            type="checkbox"
+            checked={demoOnlyChecked}
+            onChange={(e) => setDemoOnlyChecked(e.target.checked)}
+            disabled={busy}
+          />
+          תצוגה: רק מסומנים ✓
+        </label>
+
+        <input
+          className="dilenInp"
+          style={{ width: 260, height: 34, fontSize: 14, borderRadius: 10 }}
+          value={demoSearch}
+          onChange={(e) => setDemoSearch(e.target.value)}
+          placeholder="חיפוש בתוך התצוגה..."
+          disabled={busy}
+        />
+
+        <span className="dilenCode" title="כמה כרטיסים יש בתצוגה">
+          {demoIndices.length}
+        </span>
+        {/* ✅ NEW: הצג button (opens modal) */}
+        <button
+          className="dilenBtn"
+          onClick={openDemoFirst}
+          disabled={busy}
+          title="פתח תצוגה (לפי מסומנים/חיפוש תצוגה)"
+          style={{ height: 34, borderRadius: 10 }}
+        >
+          הצג
+        </button>
       </div>
 
       <div className="dilenTableWrap">
@@ -2073,10 +2262,7 @@ function AdminPanel({ token, onLogout }) {
                         ) : null}
                         <button
                           className="dilenBtnTiny"
-                          onClick={() => {
-                            setDemoIndex(realIndex);
-                            setDemoOpen(true);
-                          }}
+                          onClick={() => openDemoAtRealIndex(realIndex)}
                           disabled={busy}
                           title="הצג דמו של הכרטיס"
                         >
@@ -2241,6 +2427,11 @@ function AdminPanel({ token, onLogout }) {
         onClose={() => setDemoOpen(false)}
         backgroundUrl={DEMO_CARD_BG}
         getAlergonLabel={allergenPathToLabel}
+        onPrev={demoPrev}
+        onNext={demoNext}
+        page={demoPage}
+        total={demoTotal}
+        onJump={demoJump}
       />
     </div>
   );
