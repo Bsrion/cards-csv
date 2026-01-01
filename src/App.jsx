@@ -1,4 +1,16 @@
 // src/App.jsx
+// ✅ Full file (copy-paste) with ALL latest fixes:
+// - Export = TXT (TAB) UTF-16LE with BOM (Hebrew/English OK in InDesign)
+// - Export ONLY checked rows
+// - Export headers include: @alergonim_1 @alergonim_2 @alergonim_3
+// - Export does NOT include is_selected
+// - Import Excel: reads hyperlinks for @alergonim_* cells (uses the real path)
+// - Import: never turns alergonim into "0" (0 -> "")
+// - Fix: downloadCSV is defined (alias to downloadTXT)
+// - Import CSV/TXT: BOM-aware decoding (UTF-8 / UTF-16LE)
+
+// IMPORTANT (install deps):
+// npm i xlsx papaparse
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
@@ -27,8 +39,9 @@ const OPTION_PRESETS = [
   "חדש",
 ];
 
-const CSV_HEADERS = [
-  "is_selected",
+// ✅ TXT/CSV headers (for InDesign Data Merge)
+// NOTE: InDesign image fields should start with "@"
+const TXT_HEADERS = [
   "line_1",
   "line_2",
   "line_3",
@@ -38,13 +51,13 @@ const CSV_HEADERS = [
   "option_3",
   "price",
   "unit",
-  "alergonim_1",
-  "alergonim_2",
-  "alergonim_3",
+  "@alergonim_1",
+  "@alergonim_2",
+  "@alergonim_3",
 ];
 
 /* =========================
-   ✅ ALLERGENS (UI shows LABEL, DB/CSV keeps PATH)
+   ✅ ALLERGENS (UI shows LABEL, DB/TXT keeps PATH)
    ========================= */
 const ALERGENS = {
   GLUTEN: {
@@ -70,6 +83,12 @@ const ALERGEN_LIST = Object.values(ALERGENS);
    ========================= */
 function makeClientId() {
   return crypto?.randomUUID?.() || `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+function fmtPrice2(v) {
+  const s = cleanSpaces(v).replace(",", ".");
+  if (!s) return "";
+  const n = Number(s);
+  return Number.isFinite(n) ? n.toFixed(2) : s;
 }
 
 function cleanSpaces(s) {
@@ -130,14 +149,26 @@ function toBool(v, def = false) {
   return s === "true" || s === "1" || s === "yes" || s === "כן";
 }
 
-/** Accept CSV/Excel values for alergonim: TRUE/FALSE or a path */
+/**
+ * ✅ Accept CSV/Excel values for alergonim:
+ * - "0" => ""
+ * - TRUE/1/YES/כן => gluten path (backward support)
+ * - otherwise keep the string (path)
+ */
 function toAlergonValue(v) {
   const s = cleanSpaces(v);
   if (!s) return "";
+
+  if (s === "0") return "";
+
+  // if looks like a path, keep it as-is
+  if (s.includes("/") || s.includes("\\") || s.includes(":")) return s;
+
   const low = s.toLowerCase();
   if (low === "true" || low === "1" || low === "yes" || low === "כן") return ALERGENS.GLUTEN.path;
-  if (low === "false" || low === "0" || low === "no" || low === "לא") return "";
-  return s; // already a path
+  if (low === "false" || low === "no" || low === "לא") return "";
+
+  return s;
 }
 
 /**
@@ -183,6 +214,32 @@ async function fetchJson(url, options) {
     throw new Error(data?.details || data?.error || `HTTP ${res.status}`);
   }
   return data;
+}
+
+/* =========================
+   ✅ BOM-aware text decoder (CSV/TXT import)
+   ========================= */
+async function readFileTextSmart(file) {
+  const buf = await file.arrayBuffer();
+  const u8 = new Uint8Array(buf);
+
+  // UTF-16LE BOM: FF FE
+  if (u8.length >= 2 && u8[0] === 0xff && u8[1] === 0xfe) {
+    // decode utf-16le manually
+    let out = "";
+    for (let i = 2; i + 1 < u8.length; i += 2) {
+      out += String.fromCharCode(u8[i] | (u8[i + 1] << 8));
+    }
+    return out;
+  }
+
+  // UTF-8 BOM: EF BB BF
+  if (u8.length >= 3 && u8[0] === 0xef && u8[1] === 0xbb && u8[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(u8.slice(3));
+  }
+
+  // default: utf-8
+  return new TextDecoder("utf-8").decode(u8);
 }
 
 /* =========================
@@ -241,7 +298,7 @@ function emptyRow() {
     id: null,
     client_id: makeClientId(),
 
-    is_selected: false, // checkbox
+    is_selected: false,
 
     line_1: "",
     line_2: "",
@@ -270,8 +327,8 @@ function emptyRow() {
     alergonim_2_mode: "auto",
     alergonim_3_mode: "auto",
 
-    is_new: false, // only one allowed at a time (draft row)
-    dirty: false, // ✅ changed locally but not saved to server
+    is_new: false,
+    dirty: false,
   };
 }
 
@@ -283,11 +340,10 @@ function normalizeImportedRow(raw) {
     r.id = Number.isFinite(n) ? n : null;
   }
 
-  // typo support
   if (raw?.english_anme && !raw?.english_name) raw.english_name = raw.english_anme;
 
-  // basic fields
   r.is_selected = toBool(raw?.is_selected, false);
+
   r.line_1 = String(raw?.line_1 ?? "");
   r.line_2 = String(raw?.line_2 ?? "");
   r.line_3 = String(raw?.line_3 ?? "");
@@ -295,15 +351,14 @@ function normalizeImportedRow(raw) {
   r.price = String(raw?.price ?? "");
   r.unit = String(raw?.unit ?? "");
 
-  // options (import supports option_1..3)
   r.option_1_custom = String(raw?.option_1 ?? raw?.option_1_custom ?? "");
   r.option_2_custom = String(raw?.option_2 ?? raw?.option_2_custom ?? "");
   r.option_3_custom = String(raw?.option_3 ?? raw?.option_3_custom ?? "");
 
-  // allergens as path
-  r.alergonim_1 = toAlergonValue(raw?.alergonim_1 ?? "");
-  r.alergonim_2 = toAlergonValue(raw?.alergonim_2 ?? "");
-  r.alergonim_3 = toAlergonValue(raw?.alergonim_3 ?? "");
+  // ✅ allergens as path (supports "@alergonim_1" or "alergonim_1")
+  r.alergonim_1 = toAlergonValue(raw?.["@alergonim_1"] ?? raw?.alergonim_1 ?? "");
+  r.alergonim_2 = toAlergonValue(raw?.["@alergonim_2"] ?? raw?.alergonim_2 ?? "");
+  r.alergonim_3 = toAlergonValue(raw?.["@alergonim_3"] ?? raw?.alergonim_3 ?? "");
 
   // lock if imported has value
   r.alergonim_1_locked = !!cleanSpaces(r.alergonim_1);
@@ -329,10 +384,7 @@ function normalizeImportedRow(raw) {
     }
   }
 
-  // always have a client id
   r.client_id = r.client_id || makeClientId();
-
-  // imported file = local changes (not yet saved)
   r.dirty = true;
   r.is_new = !r.id;
 
@@ -340,7 +392,7 @@ function normalizeImportedRow(raw) {
 }
 
 /* =========================
-   ✅ Login (center of screen)
+   ✅ Login (center)
    ========================= */
 function Login({ onSuccess }) {
   const [user, setUser] = useState("1234");
@@ -473,14 +525,13 @@ export default function App() {
 function AdminPanel({ token, onLogout }) {
   const [rows, setRows] = useState(() => {
     const r = emptyRow();
-    r.is_new = true; // draft row
+    r.is_new = true;
     return [r];
   });
 
   const [busy, setBusy] = useState(false);
   const [rtl, setRtl] = useState(true);
 
-  // When loading DB: all unchecked by default
   const [forceUncheckOnLoad, setForceUncheckOnLoad] = useState(true);
   const [translateOnlyIfEmpty, setTranslateOnlyIfEmpty] = useState(true);
 
@@ -490,16 +541,13 @@ function AdminPanel({ token, onLogout }) {
 
   const fileRef = useRef(null);
 
-  // Balloon state for “save to add new row”
   const [balloonForClientId, setBalloonForClientId] = useState("");
   const balloonTimerRef = useRef(null);
 
-  // Backups
   const [backups, setBackups] = useState([]);
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [restorePickId, setRestorePickId] = useState("");
 
-  // ✅ Duplicates filter (only by line_1+line_2+line_3)
   const [dupOnly, setDupOnly] = useState(false);
   const [dupClientIds, setDupClientIds] = useState([]);
 
@@ -507,7 +555,6 @@ function AdminPanel({ token, onLogout }) {
   const noneChecked = useMemo(() => rows.every((r) => !r.is_selected), [rows]);
   const mixedChecked = useMemo(() => !(allChecked || noneChecked), [allChecked, noneChecked]);
 
-  // Pending new row (only 1 allowed)
   const pendingNewRow = useMemo(() => rows.find((r) => r.is_new && !r.id), [rows]);
 
   const dirtyCount = useMemo(
@@ -532,9 +579,7 @@ function AdminPanel({ token, onLogout }) {
   }, []);
 
   function markDirty(row) {
-    // new row always dirty
     if (row.is_new && !row.id) return true;
-    // existing row -> dirty when changed
     return true;
   }
 
@@ -586,7 +631,6 @@ function AdminPanel({ token, onLogout }) {
       const l = cleanSpaces(label);
 
       if (!l) {
-        // cleared => unlock + auto from note
         row[lockKey] = false;
         row[modeKey] = "auto";
         const note = finalOption(
@@ -597,7 +641,7 @@ function AdminPanel({ token, onLogout }) {
       } else if (l === "ידני") {
         row[lockKey] = true;
         row[modeKey] = "manual";
-        if (!cleanSpaces(row[valKey])) row[valKey] = "";
+        if (cleanSpaces(row[valKey]) === "0") row[valKey] = "";
       } else {
         row[valKey] = allergenLabelToPath(l);
         row[lockKey] = true;
@@ -620,7 +664,8 @@ function AdminPanel({ token, onLogout }) {
       const lockKey = `alergonim_${allergenIndex}_locked`;
       const modeKey = `alergonim_${allergenIndex}_mode`;
 
-      row[valKey] = String(path ?? "");
+      const p = String(path ?? "");
+      row[valKey] = p === "0" ? "" : p;
       row[lockKey] = true;
       row[modeKey] = "manual";
 
@@ -669,30 +714,79 @@ function AdminPanel({ token, onLogout }) {
       option_3: finalOption(r.option_3_preset, r.option_3_custom),
       price: r.price,
       unit: r.unit,
-      alergonim_1: r.alergonim_1 || "",
-      alergonim_2: r.alergonim_2 || "",
-      alergonim_3: r.alergonim_3 || "",
+
+      // ✅ IMPORTANT: never send "0"
+      alergonim_1: cleanSpaces(r.alergonim_1) === "0" ? "" : r.alergonim_1 || "",
+      alergonim_2: cleanSpaces(r.alergonim_2) === "0" ? "" : r.alergonim_2 || "",
+      alergonim_3: cleanSpaces(r.alergonim_3) === "0" ? "" : r.alergonim_3 || "",
     }));
   }, [rows]);
 
-  /** Build rows for export CSV */
+  /* =========================================================
+     ✅ Export ONLY checked rows -> TXT UTF-16LE (InDesign)
+     ========================================================= */
   const exportRows = useMemo(() => {
-    return rows.map((r) => ({
-      is_selected: r.is_selected ? "TRUE" : "FALSE",
-      line_1: r.line_1,
-      line_2: r.line_2,
-      line_3: r.line_3,
-      english_name: cleanSpaces(r.english_name),
-      option_1: finalOption(r.option_1_preset, r.option_1_custom),
-      option_2: finalOption(r.option_2_preset, r.option_2_custom),
-      option_3: finalOption(r.option_3_preset, r.option_3_custom),
-      price: r.price,
-      unit: r.unit,
-      alergonim_1: r.alergonim_1 || "",
-      alergonim_2: r.alergonim_2 || "",
-      alergonim_3: r.alergonim_3 || "",
-    }));
+    return rows
+      .filter((r) => !!r.is_selected)
+      .filter((r) => !isRowEmptyForDB(r))
+      .map((r) => ({
+        line_1: r.line_1,
+        line_2: r.line_2,
+        line_3: r.line_3,
+        english_name: cleanSpaces(r.english_name),
+        option_1: finalOption(r.option_1_preset, r.option_1_custom),
+        option_2: finalOption(r.option_2_preset, r.option_2_custom),
+        option_3: finalOption(r.option_3_preset, r.option_3_custom),
+        price: fmtPrice2(r.price),
+        unit: r.unit,
+        "@alergonim_1": cleanSpaces(r.alergonim_1) === "0" ? "" : cleanSpaces(r.alergonim_1) || "",
+        "@alergonim_2": cleanSpaces(r.alergonim_2) === "0" ? "" : cleanSpaces(r.alergonim_2) || "",
+        "@alergonim_3": cleanSpaces(r.alergonim_3) === "0" ? "" : cleanSpaces(r.alergonim_3) || "",
+      }));
   }, [rows]);
+
+  // ✅ UTF-16LE bytes converter (reliable in browsers)
+  function stringToUtf16leBytes(str) {
+    const out = new Uint8Array(str.length * 2);
+    for (let i = 0; i < str.length; i++) {
+      const code = str.charCodeAt(i);
+      out[i * 2] = code & 0xff;
+      out[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    return out;
+  }
+
+  function downloadTXT() {
+    if (!exportRows.length) {
+      alert("לא נבחרו שורות לייצוא. סמן ✓ בעמודת 'שמור?' ואז נסה שוב.");
+      return;
+    }
+
+    const body = Papa.unparse(exportRows, {
+      columns: TXT_HEADERS,
+      delimiter: "\t",
+      newline: "\r\n",
+      quotes: false,
+      header: true,
+    });
+
+    const bom = new Uint8Array([0xff, 0xfe]);
+    const bytes = stringToUtf16leBytes(body);
+
+    const blob = new Blob([bom, bytes], { type: "text/plain;charset=utf-16le" });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "cards.txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // ✅ Your button calls downloadCSV in the UI, so keep it working:
+  const downloadCSV = downloadTXT;
 
   /** Save checkbox “all” */
   function toggleCheckAll(nextValue) {
@@ -744,7 +838,6 @@ function AdminPanel({ token, onLogout }) {
     const ok = window.confirm("למחוק את השורה הזו?\nהמחיקה היא קבועה.");
     if (!ok) return;
 
-    // if row exists in server -> delete there
     if (r.id) {
       setBusy(true);
       try {
@@ -762,17 +855,17 @@ function AdminPanel({ token, onLogout }) {
       }
     }
 
-    // remove from UI
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
-  /** Import Excel/CSV */
+  /** Import Excel/CSV/TXT */
   async function handleFile(file) {
     if (!file) return;
     const name = file.name.toLowerCase();
 
-    if (name.endsWith(".csv")) {
-      const text = await file.text();
+    // ✅ CSV / TXT import (BOM-aware)
+    if (name.endsWith(".csv") || name.endsWith(".txt")) {
+      const text = await readFileTextSmart(file);
       const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
       const imported = (parsed.data || []).map((r) => normalizeImportedRow(r));
       setRows(
@@ -783,21 +876,79 @@ function AdminPanel({ token, onLogout }) {
       return;
     }
 
+    // ✅ Excel import (.xlsx/.xls) with hyperlink target support
     if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
-      const imported = (json || []).map((r) => normalizeImportedRow(r));
+
+      const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+      const headerRowIndex = grid.findIndex((row) =>
+        row.some((cell) => String(cell).trim() === "line_1")
+      );
+      if (headerRowIndex === -1) {
+        alert('Excel import error: Could not find header "line_1"');
+        return;
+      }
+
+      const headers = grid[headerRowIndex].map((h) => String(h).trim());
+      const colIndex = Object.fromEntries(headers.map((h, i) => [h, i]));
+
+      const colLetter = (n) => XLSX.utils.encode_col(n);
+      const rowNumber = (r0) => r0 + 1;
+
+      const rawObjects = [];
+
+      for (let r = headerRowIndex + 1; r < grid.length; r++) {
+        const hasData = ["line_1", "line_2", "line_3", "english_name", "price", "unit"].some(
+          (key) => {
+            const idx = colIndex[key];
+            if (idx === undefined) return false;
+            return String(grid[r]?.[idx] ?? "").trim() !== "";
+          }
+        );
+        if (!hasData) continue;
+
+        const obj = {};
+
+        for (const h of headers) {
+          const idx = colIndex[h];
+          if (idx === undefined) continue;
+
+          let v = grid[r]?.[idx] ?? "";
+
+          if (h === "@alergonim_1" || h === "@alergonim_2" || h === "@alergonim_3") {
+            const addr = `${colLetter(idx)}${rowNumber(r)}`;
+            const cell = ws[addr];
+
+            const target = cell?.l?.Target;
+            if (target && String(target).trim()) {
+              v = String(target);
+            } else {
+              const s = String(v ?? "").trim();
+              if (s === "0") v = "";
+            }
+          }
+
+          obj[h] = v;
+        }
+
+        rawObjects.push(obj);
+      }
+
+      const imported = rawObjects.map((r) => normalizeImportedRow(r));
+
       setRows(
         imported.length
           ? imported.map((x) => ({ ...x, is_new: !x.id, dirty: true }))
           : [Object.assign(emptyRow(), { is_new: true, dirty: true })]
       );
+
       return;
     }
 
-    alert("Please upload a .csv or .xlsx file");
+    alert("Please upload a .csv / .txt / .xlsx file");
   }
 
   /** Translate */
@@ -841,20 +992,6 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
-  /** Export */
-  function downloadCSV() {
-    const csv = Papa.unparse(exportRows, { columns: CSV_HEADERS });
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "cards.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
   /** Load DB (auth) */
   async function loadFromDB() {
     setBusy(true);
@@ -865,7 +1002,6 @@ function AdminPanel({ token, onLogout }) {
       });
 
       const imported = (data.rows || []).map((raw) => {
-        // convert server row -> UI row
         const r = emptyRow();
         r.id = raw.id ? Number(raw.id) : null;
         r.is_selected = toBool(raw.is_selected, false);
@@ -877,17 +1013,18 @@ function AdminPanel({ token, onLogout }) {
         r.price = String(raw.price ?? "");
         r.unit = String(raw.unit ?? "");
 
-        // options loaded into custom (preset stays empty)
         r.option_1_custom = String(raw.option_1 ?? "");
         r.option_2_custom = String(raw.option_2 ?? "");
         r.option_3_custom = String(raw.option_3 ?? "");
 
-        // allergens (paths)
-        r.alergonim_1 = String(raw.alergonim_1 ?? "");
-        r.alergonim_2 = String(raw.alergonim_2 ?? "");
-        r.alergonim_3 = String(raw.alergonim_3 ?? "");
+        // ✅ IMPORTANT: normalize "0" from server
+        r.alergonim_1 =
+          cleanSpaces(raw.alergonim_1 ?? "") === "0" ? "" : String(raw.alergonim_1 ?? "");
+        r.alergonim_2 =
+          cleanSpaces(raw.alergonim_2 ?? "") === "0" ? "" : String(raw.alergonim_2 ?? "");
+        r.alergonim_3 =
+          cleanSpaces(raw.alergonim_3 ?? "") === "0" ? "" : String(raw.alergonim_3 ?? "");
 
-        // lock if has value
         r.alergonim_1_locked = !!cleanSpaces(r.alergonim_1);
         r.alergonim_2_locked = !!cleanSpaces(r.alergonim_2);
         r.alergonim_3_locked = !!cleanSpaces(r.alergonim_3);
@@ -901,8 +1038,6 @@ function AdminPanel({ token, onLogout }) {
 
         r.is_new = false;
         r.dirty = false;
-
-        // keep client_id
         r.client_id = makeClientId();
         return r;
       });
@@ -911,7 +1046,6 @@ function AdminPanel({ token, onLogout }) {
         ? imported.map((r) => ({ ...r, is_selected: false }))
         : imported;
 
-      // keep a draft row at top (empty)
       const draft = emptyRow();
       draft.is_new = true;
       draft.dirty = false;
@@ -926,7 +1060,7 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
-  /** ✅ Save ALL changes: update changed rows + add new rows (NO DELETE EVER) */
+  /** Save ALL changes */
   async function saveToDBAllChanges() {
     const toSave = [];
     const toSaveIndexes = [];
@@ -934,15 +1068,10 @@ function AdminPanel({ token, onLogout }) {
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
 
-      // skip totally empty draft/new
       if ((r.is_new && !r.id) || !r.id) {
         if (isRowEmptyForDB(r)) continue;
       }
-
-      // existing: only if dirty
       if (r.id && !r.is_new && !r.dirty) continue;
-
-      // new: save if not empty
       if (!r.id && isRowEmptyForDB(r)) continue;
 
       toSave.push(dbPayload[i]);
@@ -962,26 +1091,15 @@ function AdminPanel({ token, onLogout }) {
         body: JSON.stringify({ action: "save", rows: toSave, sync_delete: false }),
       });
 
-      // Apply new IDs (id_map is by client_id)
       setRows((prev) =>
         prev.map((row, idx) => {
-          // if row already has id -> just clear dirty if it was in saved set
           const wasSaved = toSaveIndexes.includes(idx);
+          if (row.id) return wasSaved ? { ...row, dirty: false, is_new: false } : row;
 
-          if (row.id) {
-            return wasSaved ? { ...row, dirty: false, is_new: false } : row;
-          }
-
-          // new row -> assign id if came back
           const newId = data?.id_map?.[row.client_id];
           if (!newId) return wasSaved ? { ...row, dirty: false } : row;
 
-          return {
-            ...row,
-            id: Number(newId),
-            is_new: false,
-            dirty: false,
-          };
+          return { ...row, id: Number(newId), is_new: false, dirty: false };
         })
       );
 
@@ -993,7 +1111,7 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
-  /** ✅ Update ONE existing row (עדכן) */
+  /** Update ONE existing row */
   async function updateSingleRow(index) {
     const rUI = rows[index];
     if (!rUI?.id) return;
@@ -1013,12 +1131,7 @@ function AdminPanel({ token, onLogout }) {
         body: JSON.stringify({ action: "save", rows: [payload], sync_delete: false }),
       });
 
-      setRows((prev) =>
-        prev.map((row, i) => {
-          if (i !== index) return row;
-          return { ...row, dirty: false };
-        })
-      );
+      setRows((prev) => prev.map((row, i) => (i !== index ? row : { ...row, dirty: false })));
 
       alert("עודכן ✅");
     } catch (e) {
@@ -1028,7 +1141,7 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
-  /** Save ONLY the NEW row (Add button inside row) */
+  /** Save ONLY the NEW row */
   async function addThisNewRow(index) {
     const rUI = rows[index];
     if (!rUI?.is_new || rUI.id) return;
@@ -1055,10 +1168,9 @@ function AdminPanel({ token, onLogout }) {
       }
 
       setRows((prev) =>
-        prev.map((row, i) => {
-          if (i !== index) return row;
-          return { ...row, id: Number(newId), is_new: false, dirty: false };
-        })
+        prev.map((row, i) =>
+          i !== index ? row : { ...row, id: Number(newId), is_new: false, dirty: false }
+        )
       );
     } catch (e) {
       alert(`Add row error: ${e?.message || e}`);
@@ -1123,7 +1235,7 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
-  /** ✅ Delete ALL DB (danger) with confirm + password */
+  /** ✅ Delete ALL DB */
   async function deleteAllDB() {
     const ok = window.confirm(
       "⚠️ מחיקת מסד נתונים!\n\n" +
@@ -1144,7 +1256,6 @@ function AdminPanel({ token, onLogout }) {
         body: JSON.stringify({ action: "delete_all", admin_password: pass }),
       });
 
-      // reset UI with a fresh draft row
       const draft = emptyRow();
       draft.is_new = true;
 
@@ -1160,7 +1271,7 @@ function AdminPanel({ token, onLogout }) {
     }
   }
 
-  /** ✅ Duplicates (only line_1+line_2+line_3) */
+  /** Duplicates */
   function dupKeyFromRow(r) {
     const l1 = normalizeForSearch(r.line_1);
     const l2 = normalizeForSearch(r.line_2);
@@ -1170,7 +1281,7 @@ function AdminPanel({ token, onLogout }) {
   }
 
   function checkDuplicates() {
-    const map = new Map(); // key -> array of indexes
+    const map = new Map();
     for (let i = 0; i < rows.length; i++) {
       const key = dupKeyFromRow(rows[i]);
       if (!key) continue;
@@ -1206,7 +1317,6 @@ function AdminPanel({ token, onLogout }) {
     const q = normalizeForSearch(search);
     let list = rows.map((row, index) => ({ row, index }));
 
-    // ✅ show only duplicates (optional)
     if (dupOnly && dupClientIds.length) {
       const set = new Set(dupClientIds);
       list = list.filter(({ row }) => set.has(row.client_id));
@@ -1267,7 +1377,6 @@ function AdminPanel({ token, onLogout }) {
       });
     }
 
-    // Keep NEW row at top always
     list = list.sort((a, b) => (b.row.is_new ? 1 : 0) - (a.row.is_new ? 1 : 0));
     return list;
   }, [rows, search, sortKey, sortDir, dupOnly, dupClientIds]);
@@ -1370,7 +1479,7 @@ function AdminPanel({ token, onLogout }) {
         .dilenEnglishRow button{ padding:4px 6px; font-size:11px; }
 
         .dilenSmall{ font-size:11px; opacity:0.75; margin-top:4px; line-height:1.2; }
-        .warnText{ color:var(--warn); font-weight:900; }
+        .warnText{ color:#b00020; font-weight:900; }
 
         /* column sizes */
         .col-num{ width:45px; }
@@ -1425,7 +1534,7 @@ function AdminPanel({ token, onLogout }) {
           vertical-align:middle;
         }
 
-        /* force light form controls even if device is dark */
+        /* force light controls */
         .dilenCardsApp, .dilenCardsApp * { color-scheme: light !important; }
         .dilenCardsApp input, .dilenCardsApp select, .dilenCardsApp button, .dilenCardsApp textarea {
           background:#fff !important; color:#111 !important;
@@ -1451,16 +1560,16 @@ function AdminPanel({ token, onLogout }) {
           </button>
 
           <button className="dilenBtn" onClick={downloadCSV} disabled={busy}>
-            יצוא לקובץ CSV - לדילן
+            יצוא לקובץ TXT - לדילן (רק מסומנים)
           </button>
 
           <button className="dilenBtn" onClick={() => fileRef.current?.click()} disabled={busy}>
-            יבוא נתונים מקובץ Excel/CSV
+            יבוא נתונים מקובץ Excel/CSV/TXT
           </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.xlsx,.xls"
+            accept=".csv,.txt,.xlsx,.xls"
             style={{ display: "none" }}
             onChange={(e) => handleFile(e.target.files?.[0])}
           />
@@ -1528,7 +1637,7 @@ function AdminPanel({ token, onLogout }) {
               }}
               onChange={(e) => toggleCheckAll(e.target.checked)}
             />
-            {allChecked ? " בטל את בחירת כל הכרטיסים ✗" : "בחר את על הכרטיסים לשמירה ✓"}
+            {allChecked ? " בטל את בחירת כל הכרטיסים ✗" : "בחר את כל הכרטיסים לשמירה ✓"}
           </label>
 
           <label className="dilenToggle">
@@ -1554,12 +1663,10 @@ function AdminPanel({ token, onLogout }) {
             סדר עמודות מימין לשמאל
           </label>
 
-          {/* ✅ Search moved next to "שינויים לא שמורים" and made bigger */}
           <div className="dilenToggle" style={{ borderStyle: "dashed", gap: 10 }}>
             <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
             <span className="dilenCode">{dirtyCount + newCount}</span>
 
-            {/* Search placed LEFT of the changes counter (in RTL it appears on the left) */}
             <input
               className="dilenInp"
               style={{ width: 320, height: 34, fontSize: 14, borderRadius: 10 }}
@@ -1859,7 +1966,6 @@ function AdminPanel({ token, onLogout }) {
                       <div
                         style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
                       >
-                        {/* NEW row (no ID shown, but Add button exists) */}
                         {r.is_new && !r.id ? (
                           <>
                             <button
@@ -1884,7 +1990,6 @@ function AdminPanel({ token, onLogout }) {
                           </>
                         ) : null}
 
-                        {/* Existing row: עדכן */}
                         {!r.is_new && r.id ? (
                           <button
                             className="dilenBtnTiny"
@@ -1921,7 +2026,6 @@ function AdminPanel({ token, onLogout }) {
         </div>
       </div>
 
-      {/* Restore modal */}
       {showBackupModal && (
         <div
           onClick={() => setShowBackupModal(false)}
@@ -2067,7 +2171,7 @@ function OptionCell({ preset, custom, onChange, disabled }) {
 
 /**
  * ✅ UI shows: label (גלוטן/טבעוני/צמחוני/ידני)
- * ✅ DB/CSV keeps: full PATH
+ * ✅ DB/TXT keeps: full PATH
  */
 function AlergonCellLabelUI({
   label,
