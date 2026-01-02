@@ -1544,6 +1544,18 @@ function AdminPanel({ token, onLogout }) {
 
   const demoPos = useMemo(() => demoIndices.indexOf(demoIndex), [demoIndices, demoIndex]);
 
+  // ✅ When modal search is applied, ensure demoIndex is valid for the filtered demoIndices
+  useEffect(() => {
+    if (!demoOpen) return;
+
+    // if no results - close? (I prefer keep open and user can change search)
+    if (demoIndices.length === 0) return;
+
+    // if current card isn't in filtered list, jump to first match
+    if (!demoIndices.includes(demoIndex)) {
+      setDemoIndex(demoIndices[0]);
+    }
+  }, [demoOpen, demoIndices, demoIndex]);
   // 1-based page number for UI
   const demoPage = demoPos >= 0 ? demoPos + 1 : 1;
 
@@ -2428,12 +2440,14 @@ function AdminPanel({ token, onLogout }) {
         row={demoIndex >= 0 ? rows[demoIndex] : null}
         onClose={() => setDemoOpen(false)}
         backgroundUrl={DEMO_CARD_BG}
-        getAlergonLabel={allergenPathToLabel}
         onPrev={demoPrev}
         onNext={demoNext}
         page={demoPage}
         total={demoTotal}
         onJump={demoJump}
+        // ✅ NEW
+        searchValue={demoSearch}
+        onSearch={(text) => setDemoSearch(text)}
       />
     </div>
   );

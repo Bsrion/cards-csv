@@ -1,9 +1,7 @@
-// CardDemoModal.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /* ================= BASE PATH HELPER ================= */
 const BASE = import.meta.env.BASE_URL || "/";
-
 function withBase(path) {
   const p = String(path || "").replace(/^\/+/, "");
   return `${BASE}${p}`;
@@ -108,8 +106,26 @@ async function ensurePdfLibs() {
   return { html2canvas, jsPDF };
 }
 
+function cloneLayout(obj) {
+  return JSON.parse(JSON.stringify(obj || {}));
+}
+
 export default function CardDemoModal(props) {
-  const { open, row, onClose, backgroundUrl = "", onPrev, onNext, page, total, onJump } = props;
+  const {
+    open,
+    row,
+    onClose,
+    backgroundUrl = "",
+    onPrev,
+    onNext,
+    page,
+    total,
+    onJump,
+
+    // ✅ NEW: search integration to App.jsx filtering
+    onSearch, // (text) => void
+    searchValue = "", // current value from parent (optional)
+  } = props;
 
   const cardRef = useRef(null);
   const stageRef = useRef(null);
@@ -180,17 +196,74 @@ export default function CardDemoModal(props) {
   const [jumpValue, setJumpValue] = useState(1);
   const [suppressSelection, setSuppressSelection] = useState(false);
 
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const [fsScale, setFsScale] = useState(1);
+  // ✅ Fullscreen-only scaling
+  const [scale, setScale] = useState(1);
 
+  // ✅ Search inside modal
+  const [q, setQ] = useState("");
+
+  // ✅ Undo/Redo (max 20 steps)
+  const [undoStack, setUndoStack] = useState([]); // past snapshots
+  const [redoStack, setRedoStack] = useState([]); // future snapshots
+  const MAX_HISTORY = 20;
+
+  function pushHistory(nextLayout) {
+    setUndoStack((prev) => {
+      const next = [...prev, cloneLayout(nextLayout)];
+      if (next.length > MAX_HISTORY) next.shift();
+      return next;
+    });
+    setRedoStack([]); // clear redo on new change
+  }
+
+  function canUndo() {
+    return undoStack.length > 0;
+  }
+  function canRedo() {
+    return redoStack.length > 0;
+  }
+
+  function doUndo() {
+    setUndoStack((past) => {
+      if (past.length === 0) return past;
+      setRedoStack((future) => {
+        const nextFuture = [...future, cloneLayout(layout)];
+        if (nextFuture.length > MAX_HISTORY) nextFuture.shift();
+        return nextFuture;
+      });
+      const prevLayout = past[past.length - 1];
+      setLayout(cloneLayout(prevLayout));
+      return past.slice(0, -1);
+    });
+  }
+
+  function doRedo() {
+    setRedoStack((future) => {
+      if (future.length === 0) return future;
+      setUndoStack((past) => {
+        const nextPast = [...past, cloneLayout(layout)];
+        if (nextPast.length > MAX_HISTORY) nextPast.shift();
+        return nextPast;
+      });
+      const nextLayout = future[future.length - 1];
+      setLayout(cloneLayout(nextLayout));
+      return future.slice(0, -1);
+    });
+  }
+
+  // Reset on open
   useEffect(() => {
     if (!open) return;
     setLayout(defaultLayout);
     setPanelOpen(false);
     setSelectedKey(null);
     setDrag(null);
-    setIsFullScreen(false);
-    setFsScale(1);
+    setScale(1);
+    setUndoStack([]);
+    setRedoStack([]);
+
+    // search input resets to parent value (or empty)
+    setQ(String(searchValue || ""));
   }, [open, defaultLayout]);
 
   useEffect(() => {
@@ -198,25 +271,25 @@ export default function CardDemoModal(props) {
     setJumpValue(page || 1);
   }, [open, page]);
 
+  // keep input in sync if parent changes demoSearch while modal open
   useEffect(() => {
     if (!open) return;
-    if (isFullScreen) {
-      setPanelOpen(false);
-      setFsScale(1);
-    }
-  }, [open, isFullScreen]);
+    setQ(String(searchValue || ""));
+  }, [open, searchValue]);
 
-  function updateKey(key, patch) {
+  function updateKey(key, patch, record = true) {
     setLayout((prev) => {
       const next = { ...prev };
       next[key] = { ...(next[key] || {}), ...patch };
+
+      if (record) pushHistory(prev); // record previous state
       return next;
     });
   }
 
-  // ✅ fullscreen scale calc
+  // scale calc (always fullscreen)
   useEffect(() => {
-    if (!open || !isFullScreen) return;
+    if (!open) return;
 
     function calcScale() {
       const stageEl = stageRef.current;
@@ -231,37 +304,33 @@ export default function CardDemoModal(props) {
       const baseH = cardEl.offsetHeight || 1;
 
       const s = Math.min(availW / baseW, availH / baseH);
-      setFsScale(Math.max(0.6, Math.min(3.2, s)));
+      setScale(Math.max(0.55, Math.min(3.2, s)));
     }
 
     const t = requestAnimationFrame(() => requestAnimationFrame(calcScale));
-
     window.addEventListener("resize", calcScale);
     return () => {
       cancelAnimationFrame(t);
       window.removeEventListener("resize", calcScale);
     };
-  }, [open, isFullScreen]);
+  }, [open, row]);
 
-  // ✅ KEYBOARD FIX
+  // KEYBOARD: arrows + esc + enter for search + undo/redo
   const prevRef = useRef(onPrev);
   const nextRef = useRef(onNext);
   const closeRef = useRef(onClose);
-  const fsRef = useRef(isFullScreen);
   const lastNavTsRef = useRef(0);
 
   useEffect(() => {
     prevRef.current = onPrev;
     nextRef.current = onNext;
     closeRef.current = onClose;
-    fsRef.current = isFullScreen;
-  }, [onPrev, onNext, onClose, isFullScreen]);
+  }, [onPrev, onNext, onClose]);
 
   useEffect(() => {
     if (!open) return;
 
     function onKeyDown(e) {
-      if (e.repeat) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
 
       const el = e.target;
@@ -271,8 +340,34 @@ export default function CardDemoModal(props) {
         tag === "textarea" ||
         el?.isContentEditable ||
         el?.closest?.("[contenteditable='true']");
-      if (typing) return;
 
+      // Undo/Redo even if not typing (but ignore when focus is in input with text editing shortcuts)
+      if (!typing) {
+        // Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+          e.preventDefault();
+          if (e.shiftKey) doRedo();
+          else doUndo();
+          return;
+        }
+      }
+
+      // If focused in search input: Enter triggers search
+      if (tag === "input" && el?.classList?.contains("modalSearchInp")) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onSearch?.(cleanSpaces(q));
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setQ("");
+          onSearch?.("");
+        }
+        return;
+      }
+
+      // normal nav (avoid repeats)
+      if (e.repeat) return;
       const now = Date.now();
       if (now - lastNavTsRef.current < 120) return;
 
@@ -280,9 +375,7 @@ export default function CardDemoModal(props) {
         e.preventDefault();
         e.stopPropagation();
         lastNavTsRef.current = now;
-
-        if (fsRef.current) setIsFullScreen(false);
-        else closeRef.current?.();
+        closeRef.current?.();
         return;
       }
 
@@ -305,7 +398,7 @@ export default function CardDemoModal(props) {
 
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [open]);
+  }, [open, q, onSearch, layout]);
 
   const closeIfOverlay = (e) => {
     if (e.target === e.currentTarget) onClose?.();
@@ -338,6 +431,8 @@ export default function CardDemoModal(props) {
       startYpx: e.clientY,
       startXcm: st2.x ?? startXcm,
       startYcm: st2.y ?? startYcm,
+      // snapshot to allow one history push at end of drag
+      before: cloneLayout(layout),
     });
   }
 
@@ -350,11 +445,28 @@ export default function CardDemoModal(props) {
     const nx = clamp(drag.startXcm + dx, -2, CARD_CM.w + 2);
     const ny = clamp(drag.startYcm + dy, -2, CARD_CM.h + 2);
 
-    updateKey(drag.key, { x: Number(nx.toFixed(2)), y: Number(ny.toFixed(2)) });
+    // ✅ do NOT record history per mousemove
+    updateKey(drag.key, { x: Number(nx.toFixed(2)), y: Number(ny.toFixed(2)) }, false);
   }
 
   function onMouseUp() {
-    if (drag) setDrag(null);
+    if (!drag) return;
+
+    // ✅ record one step for the whole drag
+    const before = drag.before;
+    setDrag(null);
+
+    // push "before" as undo step only if changed
+    const nowStr = JSON.stringify(layout);
+    const beforeStr = JSON.stringify(before);
+    if (nowStr !== beforeStr) {
+      setUndoStack((prev) => {
+        const next = [...prev, before];
+        if (next.length > MAX_HISTORY) next.shift();
+        return next;
+      });
+      setRedoStack([]);
+    }
   }
 
   function handlePrint() {
@@ -408,6 +520,15 @@ export default function CardDemoModal(props) {
     }
   }
 
+  // Search actions
+  function runSearch() {
+    onSearch?.(cleanSpaces(q));
+  }
+  function clearSearch() {
+    setQ("");
+    onSearch?.("");
+  }
+
   const selected = selectedKey ? layout[selectedKey] : null;
   const selectedField = selectedKey ? fields.find((f) => f.key === selectedKey) : null;
 
@@ -422,13 +543,13 @@ export default function CardDemoModal(props) {
 
   return (
     <div
-      className={`dilenCardDemoOverlay ${isFullScreen ? "fullscreen" : ""}`}
+      className="dilenCardDemoOverlay fullscreen"
       onMouseDown={closeIfOverlay}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
     >
       <div
-        className={`dilenCardDemoModal ${isFullScreen ? "fullscreen" : ""}`}
+        className="dilenCardDemoModal fullscreen"
         onMouseDown={(e) => {
           e.stopPropagation();
           clearSelectionIfClickOutsideCard(e);
@@ -454,6 +575,26 @@ export default function CardDemoModal(props) {
               title="פתח/סגור Layout"
             >
               ⚙ Layout
+            </button>
+
+            <button
+              className="layoutBtn"
+              type="button"
+              onClick={doUndo}
+              disabled={!canUndo()}
+              title="Undo (Ctrl/Cmd+Z)"
+            >
+              ↶ Undo
+            </button>
+
+            <button
+              className="layoutBtn"
+              type="button"
+              onClick={doRedo}
+              disabled={!canRedo()}
+              title="Redo (Ctrl/Cmd+Shift+Z)"
+            >
+              ↷ Redo
             </button>
 
             <div className="pagerWrap" dir="ltr">
@@ -492,15 +633,6 @@ export default function CardDemoModal(props) {
               />
             </div>
 
-            <button
-              className="layoutBtn"
-              type="button"
-              onClick={() => setIsFullScreen((v) => !v)}
-              title={isFullScreen ? "יציאה ממסך מלא (Esc)" : "מסך מלא"}
-            >
-              {isFullScreen ? "⤢ Exit" : "⛶ Full"}
-            </button>
-
             <button className="layoutBtn" type="button" onClick={handlePrint} title="הדפס">
               🖨 Print
             </button>
@@ -520,6 +652,7 @@ export default function CardDemoModal(props) {
           </div>
         </div>
 
+        {/* ✅ Guidelines row + SEARCH */}
         <div className="dilenCardDemoTips" dir="rtl">
           <span className="tipPill">ניווט: ← / →</span>
           <span className="tipDot">•</span>
@@ -530,6 +663,45 @@ export default function CardDemoModal(props) {
           <span className="tipPill">Layout: ⚙ לשינוי מיקום/גודל</span>
           <span className="tipDot">•</span>
           <span className="tipPill">להדפסה מדויקת: Actual size / 100%</span>
+
+          <span className="tipDot">•</span>
+
+          {/* ✅ Search UI */}
+          <div className="modalSearchWrap" dir="rtl" title="Search inside modal (Enter or Search)">
+            <div className="modalSearchInputWrap">
+              <input
+                className="modalSearchInp"
+                dir="rtl"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search cards..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    runSearch();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    clearSearch();
+                  }
+                }}
+              />
+              {q ? (
+                <button
+                  className="modalSearchClear"
+                  type="button"
+                  onClick={clearSearch}
+                  title="Clear"
+                >
+                  ✕
+                </button>
+              ) : null}
+            </div>
+
+            <button className="modalSearchBtn" type="button" onClick={runSearch} title="Search">
+              Search
+            </button>
+          </div>
         </div>
 
         <div className={`dilenCardDemoBody ${controlsVisible ? "panelOpen" : ""}`}>
@@ -565,7 +737,7 @@ export default function CardDemoModal(props) {
                     </div>
                     <PricePartControls
                       st={layout[selectedKey]}
-                      onChange={(patch) => updateKey(selectedKey, patch)}
+                      onChange={(patch) => updateKey(selectedKey, patch, true)}
                     />
                   </>
                 ) : selectedKey === "price_group" ? (
@@ -578,7 +750,9 @@ export default function CardDemoModal(props) {
                           type="number"
                           step="0.1"
                           value={priceGroup.x ?? 0}
-                          onChange={(e) => updateKey("price_group", { x: Number(e.target.value) })}
+                          onChange={(e) =>
+                            updateKey("price_group", { x: Number(e.target.value) }, true)
+                          }
                         />
                       </label>
                       <label className="ctrlBox">
@@ -588,7 +762,9 @@ export default function CardDemoModal(props) {
                           type="number"
                           step="0.1"
                           value={priceGroup.y ?? 0}
-                          onChange={(e) => updateKey("price_group", { y: Number(e.target.value) })}
+                          onChange={(e) =>
+                            updateKey("price_group", { y: Number(e.target.value) }, true)
+                          }
                         />
                       </label>
                     </div>
@@ -597,19 +773,19 @@ export default function CardDemoModal(props) {
                     <div className="ctrlSubTitle">עיצוב PRICE</div>
                     <PricePartControls
                       st={stP}
-                      onChange={(patch) => updateKey("price_value", patch)}
+                      onChange={(patch) => updateKey("price_value", patch, true)}
                     />
 
                     <div className="ctrlSubTitle">עיצוב ש״ח</div>
                     <PricePartControls
                       st={stS}
-                      onChange={(patch) => updateKey("price_ils", patch)}
+                      onChange={(patch) => updateKey("price_ils", patch, true)}
                     />
 
                     <div className="ctrlSubTitle">עיצוב unit</div>
                     <PricePartControls
                       st={stU}
-                      onChange={(patch) => updateKey("price_unit", patch)}
+                      onChange={(patch) => updateKey("price_unit", patch, true)}
                     />
                   </>
                 ) : selectedField?.type === "image" ? (
@@ -621,7 +797,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="0.1"
                         value={selected.x}
-                        onChange={(e) => updateKey(selectedKey, { x: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { x: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
                     <label className="ctrlBox">
@@ -631,7 +809,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="0.1"
                         value={selected.y}
-                        onChange={(e) => updateKey(selectedKey, { y: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { y: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
                     <label className="ctrlBox">
@@ -641,7 +821,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="0.1"
                         value={selected.w}
-                        onChange={(e) => updateKey(selectedKey, { w: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { w: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
                     <label className="ctrlBox">
@@ -651,7 +833,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="0.1"
                         value={selected.h}
-                        onChange={(e) => updateKey(selectedKey, { h: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { h: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
                   </div>
@@ -664,7 +848,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="0.1"
                         value={selected.x}
-                        onChange={(e) => updateKey(selectedKey, { x: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { x: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
                     <label className="ctrlBox">
@@ -674,7 +860,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="0.1"
                         value={selected.y}
-                        onChange={(e) => updateKey(selectedKey, { y: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { y: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
                     <label className="ctrlBox">
@@ -684,7 +872,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="0.1"
                         value={selected.w}
-                        onChange={(e) => updateKey(selectedKey, { w: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { w: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
                     <label className="ctrlBox">
@@ -694,7 +884,9 @@ export default function CardDemoModal(props) {
                         type="number"
                         step="1"
                         value={selected.size}
-                        onChange={(e) => updateKey(selectedKey, { size: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { size: Number(e.target.value) }, true)
+                        }
                       />
                     </label>
 
@@ -703,7 +895,9 @@ export default function CardDemoModal(props) {
                       <select
                         className="ctrlSel"
                         value={selected.weight}
-                        onChange={(e) => updateKey(selectedKey, { weight: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateKey(selectedKey, { weight: Number(e.target.value) }, true)
+                        }
                       >
                         {[200, 300, 400, 500, 600, 700, 800, 900].map((w) => (
                           <option key={w} value={w}>
@@ -718,7 +912,7 @@ export default function CardDemoModal(props) {
                       <select
                         className="ctrlSel"
                         value={selected.align || "center"}
-                        onChange={(e) => updateKey(selectedKey, { align: e.target.value })}
+                        onChange={(e) => updateKey(selectedKey, { align: e.target.value }, true)}
                       >
                         {["right", "center", "left"].map((a) => (
                           <option key={a} value={a}>
@@ -730,34 +924,31 @@ export default function CardDemoModal(props) {
                   </div>
                 )}
 
+                {/* ✅ Removed: Copy JSON button */}
+
                 <button
-                  className="ctrlBtn"
+                  className="ctrlBtn2"
                   type="button"
                   onClick={() => {
-                    navigator.clipboard?.writeText(JSON.stringify(layout, null, 2));
-                    alert("הועתק ללוח (layout JSON) ✅");
+                    // reset becomes one undo step
+                    pushHistory(layout);
+                    setLayout(defaultLayout);
                   }}
                 >
-                  העתק Layout JSON
-                </button>
-
-                <button className="ctrlBtn2" type="button" onClick={() => setLayout(defaultLayout)}>
                   איפוס ברירת מחדל
                 </button>
 
-                <div className="ctrlHint">טיפ: גרור על הכרטיס כדי להזיז אלמנטים.</div>
+                <div className="ctrlHint">
+                  טיפ: גרור על הכרטיס כדי להזיז אלמנטים. Undo/Redo עובד עד 20 צעדים.
+                </div>
               </>
             )}
           </aside>
 
           {/* ===== Card ===== */}
           <div className="dilenCardDemoStage" ref={stageRef}>
-            {/* print wrapper */}
             <div className="printWrap">
-              <div
-                className="cardScaler"
-                style={{ transform: isFullScreen ? `scale(${fsScale})` : "none" }}
-              >
+              <div className="cardScaler" style={{ transform: `scale(${scale})` }}>
                 <div
                   ref={cardRef}
                   className={`dilenCardDemoCard printArea ${suppressSelection ? "noSelectUI" : ""}`}
@@ -877,7 +1068,7 @@ export default function CardDemoModal(props) {
               </div>
             </div>
 
-            <div className={`dilenCardDemoHint ${isFullScreen ? "hideOnFullscreen" : ""}`}>
+            <div className="dilenCardDemoHint">
               גודל הכרטיס:{" "}
               <b>
                 {CARD_CM.w}cm × {CARD_CM.h}cm
@@ -887,13 +1078,10 @@ export default function CardDemoModal(props) {
         </div>
       </div>
 
-      {/* ✅ PRINT: TRUE PHYSICAL SIZE 10x15cm (no “fit”), and no top-left shift */}
+      {/* ✅ PRINT: TRUE PHYSICAL SIZE 10x15cm */}
       <style>{`
         @media print{
-          /* This forces the PRINTED PAGE to be exactly 10x15cm.
-             That is the only reliable way to guarantee the physical size at 100%. */
           @page { size: 10cm 15cm; margin: 0; }
-
           html, body{
             margin: 0 !important;
             padding: 0 !important;
@@ -901,20 +1089,13 @@ export default function CardDemoModal(props) {
             height: 15cm !important;
             overflow: hidden !important;
           }
-
           body{
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
-
-          /* hide everything */
           body *{ visibility: hidden !important; }
-
-          /* show only our print wrapper */
           .printWrap, .printWrap *{ visibility: visible !important; }
 
-          /* Make the wrapper EXACTLY page-sized and pinned to page origin.
-             No centering needed (card is same size), so it cannot drift to top-left incorrectly. */
           .printWrap{
             position: fixed !important;
             left: 0 !important;
@@ -925,10 +1106,9 @@ export default function CardDemoModal(props) {
             background: transparent !important;
           }
 
-          /* prevent any UI scaling affecting print */
+          /* prevent fullscreen scale affecting print */
           .cardScaler{ transform: none !important; }
 
-          /* enforce exact card size */
           .printArea{
             width: 10cm !important;
             height: 15cm !important;
@@ -936,7 +1116,6 @@ export default function CardDemoModal(props) {
             border: 0 !important;
             box-shadow: none !important;
           }
-
           .cardFieldSel{
             outline: none !important;
             background: transparent !important;
@@ -945,7 +1124,7 @@ export default function CardDemoModal(props) {
         }
       `}</style>
 
-      {/* ✅ ELEGANT DESIGN (same colors, cleaner / more “luxury tech”, less noisy) */}
+      {/* ✅ UI styles (fullscreen only) */}
       <style>{`
         :root{
           --neo-bg: rgba(6,8,14,0.78);
@@ -964,7 +1143,7 @@ export default function CardDemoModal(props) {
           inset: 0;
           display: grid;
           place-items: center;
-          padding: 26px;
+          padding: 6px;
           z-index: 99999;
           background:
             radial-gradient(900px 600px at 18% 12%, rgba(42,246,255,0.16), transparent 60%),
@@ -975,13 +1154,13 @@ export default function CardDemoModal(props) {
         }
 
         .dilenCardDemoModal{
-          width: min(1200px, 100%);
-          height: min(92vh, 940px);
-          border-radius: 22px;
+          width: 100vw;
+          height: 100vh;
+          border-radius: 0;
           overflow: hidden;
-          border: 1px solid rgba(135,160,255,0.14);
+          border: 0;
           background: linear-gradient(180deg, rgba(14,18,30,0.86), rgba(10,12,22,0.74));
-          box-shadow: var(--soft-shadow);
+          box-shadow: none;
           color: var(--neo-text);
           display: flex;
           flex-direction: column;
@@ -1040,7 +1219,7 @@ export default function CardDemoModal(props) {
           box-shadow: 0 18px 60px rgba(0,0,0,0.34);
         }
         .layoutBtn:active, .iconBtn:active{ transform: translateY(1px); }
-        .layoutBtn:focus-visible{ outline: none; box-shadow: var(--ring), 0 18px 60px rgba(0,0,0,0.34); }
+        .layoutBtn:disabled{ opacity:0.55; cursor:not-allowed; }
 
         .dilenCardDemoCloseBtn{
           width: 44px;
@@ -1096,9 +1275,65 @@ export default function CardDemoModal(props) {
         }
         .tipDot{ opacity: 0.34; padding: 0 2px; }
 
+        /* ✅ Search */
+        .modalSearchWrap{
+          display:flex;
+          align-items:center;
+          gap: 8px;
+          margin-inline-start: 4px;
+        }
+        .modalSearchInputWrap{
+          position: relative;
+          display:flex;
+          align-items:center;
+        }
+        .modalSearchInp{
+  width: 260px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(42,246,255,0.18);
+  background: rgba(5,7,12,0.22);
+  color: var(--neo-text);
+  padding: 0 36px 0 12px;
+  outline: none;
+  font-weight: 900;
+}
+        .modalSearchInp:focus{
+          box-shadow: var(--ring);
+          border-color: rgba(42,246,255,0.32);
+        }
+       
+.modalSearchClear{
+  position: absolute;
+  left: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(135,160,255,0.16);
+  background: rgba(10,12,22,0.26);
+  color: var(--neo-text);
+  cursor: pointer;
+  font-weight: 950;
+  line-height: 1;
+  display:grid;
+  place-items:center;
+}
+        .modalSearchBtn{
+          height: 32px;
+          padding: 0 12px;
+          border-radius: 999px;
+          cursor: pointer;
+          font-weight: 950;
+          color: var(--neo-text);
+          border: 1px solid rgba(135,160,255,0.14);
+          background: rgba(10,12,22,0.26);
+          box-shadow: 0 14px 45px rgba(0,0,0,0.22);
+        }
+        .modalSearchBtn:hover{ filter: brightness(1.06); }
+
         .dilenCardDemoBody{
           flex: 1;
-          overflow: auto;
+          overflow: hidden;
           display: grid;
           grid-template-columns: 0px 1fr;
           gap: 14px;
@@ -1118,6 +1353,8 @@ export default function CardDemoModal(props) {
           opacity: 0;
           pointer-events: none;
           transition: transform 260ms ease, opacity 260ms ease;
+          overflow: auto;
+          max-height: calc(100vh - 170px);
         }
         .dilenCardDemoControls.show{ transform: translateX(0); opacity: 1; pointer-events: auto; }
 
@@ -1140,19 +1377,8 @@ export default function CardDemoModal(props) {
         }
         .ctrlInp:focus,.ctrlSel:focus{ box-shadow: var(--ring); border-color: rgba(42,246,255,0.22); }
 
-        .ctrlBtn{
-          margin-top: 12px;
-          height: 40px;
-          border-radius: 14px;
-          border: 1px solid rgba(42,246,255,0.18);
-          background: linear-gradient(90deg, rgba(42,246,255,0.14), rgba(178,107,255,0.12));
-          color: var(--neo-text);
-          font-weight: 950;
-          cursor:pointer;
-          box-shadow: 0 18px 70px rgba(0,0,0,0.28);
-        }
         .ctrlBtn2{
-          margin-top: 8px;
+          margin-top: 10px;
           height: 40px;
           border-radius: 14px;
           border: 1px solid rgba(135,160,255,0.14);
@@ -1170,6 +1396,7 @@ export default function CardDemoModal(props) {
           justify-items:center;
           align-content:center;
           position: relative;
+          height: calc(100vh - 170px);
         }
 
         .printWrap{ display:grid; place-items:center; }
@@ -1253,29 +1480,12 @@ export default function CardDemoModal(props) {
           color: var(--neo-sub);
         }
 
-        .dilenCardDemoOverlay.fullscreen{ padding: 6px; }
-        .dilenCardDemoOverlay.fullscreen .dilenCardDemoModal{
-          width: 100vw;
-          height: 100vh;
-          max-width: none;
-          max-height: none;
-          border-radius: 0;
-        }
-        .dilenCardDemoOverlay.fullscreen .dilenCardDemoStage{ height: 100%; display:grid; place-items: center; }
-
         @media (max-width: 920px){
-          .dilenCardDemoBody{ grid-template-columns: 1fr; }
+          .dilenCardDemoBody{ grid-template-columns: 1fr; overflow:auto; }
           .dilenCardDemoBody.panelOpen{ grid-template-columns: 1fr; }
-          .dilenCardDemoControls{ transform:none; opacity:1; pointer-events:auto; }
+          .dilenCardDemoControls{ transform:none; opacity:1; pointer-events:auto; max-height:none; }
           .dilenCardDemoTitle{ max-width: 240px; }
-        }
-
-        @media (max-width: 520px){
-          .dilenCardDemoCard{
-            width: 92vw !important;
-            height: calc(92vw * 1.5) !important;
-            max-height: 78vh;
-          }
+          .dilenCardDemoStage{ height:auto; }
         }
       `}</style>
     </div>
