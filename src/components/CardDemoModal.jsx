@@ -1,3 +1,4 @@
+// CardDemoModal.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /* ================= BASE PATH HELPER ================= */
@@ -107,45 +108,54 @@ async function ensurePdfLibs() {
   return { html2canvas, jsPDF };
 }
 
-export default function CardDemoModal({
-  open,
-  row,
-  onClose,
-  backgroundUrl = "",
-  onPrev,
-  onNext,
-  page,
-  total,
-  onJump,
-}) {
-  if (!open || !row) return null;
+export default function CardDemoModal(props) {
+  const { open, row, onClose, backgroundUrl = "", onPrev, onNext, page, total, onJump } = props;
 
   const cardRef = useRef(null);
   const stageRef = useRef(null);
 
-  const opt1 = (row.option_1_custom || row.option_1_preset || "").trim();
-  const opt2 = (row.option_2_custom || row.option_2_preset || "").trim();
-  const opt3 = (row.option_3_custom || row.option_3_preset || "").trim();
+  const safeRow = row || {};
+  const isVisible = Boolean(open && row);
+
+  const opt1 = (safeRow.option_1_custom || safeRow.option_1_preset || "").trim();
+  const opt2 = (safeRow.option_2_custom || safeRow.option_2_preset || "").trim();
+  const opt3 = (safeRow.option_3_custom || safeRow.option_3_preset || "").trim();
 
   const icon1 = optionToIcon(opt1);
   const icon2 = optionToIcon(opt2);
   const icon3 = optionToIcon(opt3);
 
-  const priceValue = cleanSpaces(row.price);
+  function fmtPrice2(v) {
+    const s = cleanSpaces(v).replace(",", ".");
+    if (!s) return "";
+    const n = Number(s);
+    return Number.isFinite(n) ? n.toFixed(2) : s;
+  }
+
+  const priceValue = fmtPrice2(safeRow.price);
   const priceILS = "ש״ח";
-  const priceUnit = cleanSpaces(row.unit);
+  const priceUnit = cleanSpaces(safeRow.unit);
+
+  // ✅ title = 3 lines in ONE ROW
+  const titleRow = useMemo(() => {
+    const l1 = cleanSpaces(safeRow.line_1);
+    const l2 = cleanSpaces(safeRow.line_2);
+    const l3 = cleanSpaces(safeRow.line_3);
+    const parts = [l1, l2, l3].filter(Boolean);
+    return parts.length ? parts.join("  •  ") : "תצוגת כרטיס";
+  }, [safeRow.line_1, safeRow.line_2, safeRow.line_3]);
 
   const fields = useMemo(() => {
     return [
-      { key: "line_1", label: "line_1", type: "text", value: row.line_1 || "" },
-      { key: "line_2", label: "line_2", type: "text", value: row.line_2 || "" },
-      { key: "line_3", label: "line_3", type: "text", value: row.line_3 || "" },
+      { key: "line_1", label: "line_1", type: "text", value: safeRow.line_1 || "" },
+      { key: "line_2", label: "line_2", type: "text", value: safeRow.line_2 || "" },
+      { key: "line_3", label: "line_3", type: "text", value: safeRow.line_3 || "" },
 
       { key: "opt1", label: "option_1", type: "text", value: opt1 },
       { key: "opt2", label: "option_2", type: "text", value: opt2 },
       { key: "opt3", label: "option_3", type: "text", value: opt3 },
 
-      { key: "english", label: "english", type: "text", value: row.english_name || "" },
+      { key: "english", label: "english", type: "text", value: safeRow.english_name || "" },
 
       { key: "a1", label: "icon_1", type: "image", value: icon1 },
       { key: "a2", label: "icon_2", type: "image", value: icon2 },
@@ -156,14 +166,14 @@ export default function CardDemoModal({
       { key: "price_ils", label: "ש״ח", type: "pricePart", value: priceILS },
       { key: "price_unit", label: "unit", type: "pricePart", value: priceUnit },
     ];
-  }, [row, opt1, opt2, opt3, icon1, icon2, icon3, priceValue, priceUnit]);
+  }, [safeRow, opt1, opt2, opt3, icon1, icon2, icon3, priceValue, priceUnit]);
 
   const fieldKeys = useMemo(() => fields.map((f) => f.key), [fields]);
   const defaultLayout = useMemo(() => buildDefaultLayout(fieldKeys), [fieldKeys.join("|")]);
 
   const [layout, setLayout] = useState(defaultLayout);
 
-  const [panelOpen, setPanelOpen] = useState(false); // ✅ controls are ONLY based on this
+  const [panelOpen, setPanelOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState(null);
   const [drag, setDrag] = useState(null);
 
@@ -188,12 +198,11 @@ export default function CardDemoModal({
     setJumpValue(page || 1);
   }, [open, page]);
 
-  // ✅ when entering fullscreen: close panel by default + reset scale so measuring is stable
   useEffect(() => {
     if (!open) return;
     if (isFullScreen) {
       setPanelOpen(false);
-      setFsScale(1); // important! prevents the "2nd time smaller/bigger" bug
+      setFsScale(1);
     }
   }, [open, isFullScreen]);
 
@@ -205,7 +214,7 @@ export default function CardDemoModal({
     });
   }
 
-  // ✅ fullscreen scale calc (IMPORTANT: use offsetWidth/offsetHeight to ignore transforms)
+  // ✅ fullscreen scale calc
   useEffect(() => {
     if (!open || !isFullScreen) return;
 
@@ -218,7 +227,6 @@ export default function CardDemoModal({
       const availW = stageEl.clientWidth - pad * 2;
       const availH = stageEl.clientHeight - pad * 2;
 
-      // IGNORE transforms:
       const baseW = cardEl.offsetWidth || 1;
       const baseH = cardEl.offsetHeight || 1;
 
@@ -226,7 +234,6 @@ export default function CardDemoModal({
       setFsScale(Math.max(0.6, Math.min(3.2, s)));
     }
 
-    // let layout paint first
     const t = requestAnimationFrame(() => requestAnimationFrame(calcScale));
 
     window.addEventListener("resize", calcScale);
@@ -236,44 +243,70 @@ export default function CardDemoModal({
     };
   }, [open, isFullScreen]);
 
-  // ✅ keyboard
+  // ✅ KEYBOARD FIX
+  const prevRef = useRef(onPrev);
+  const nextRef = useRef(onNext);
+  const closeRef = useRef(onClose);
+  const fsRef = useRef(isFullScreen);
+  const lastNavTsRef = useRef(0);
+
+  useEffect(() => {
+    prevRef.current = onPrev;
+    nextRef.current = onNext;
+    closeRef.current = onClose;
+    fsRef.current = isFullScreen;
+  }, [onPrev, onNext, onClose, isFullScreen]);
+
   useEffect(() => {
     if (!open) return;
 
     function onKeyDown(e) {
       if (e.repeat) return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
 
-      const tag = (e.target?.tagName || "").toLowerCase();
-      const typing = tag === "input" || tag === "textarea" || e.target?.isContentEditable;
+      const el = e.target;
+      const tag = (el?.tagName || "").toLowerCase();
+      const typing =
+        tag === "input" ||
+        tag === "textarea" ||
+        el?.isContentEditable ||
+        el?.closest?.("[contenteditable='true']");
       if (typing) return;
 
-      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastNavTsRef.current < 120) return;
 
       if (e.key === "Escape") {
         e.preventDefault();
-        if (isFullScreen) setIsFullScreen(false);
-        else onClose?.();
+        e.stopPropagation();
+        lastNavTsRef.current = now;
+
+        if (fsRef.current) setIsFullScreen(false);
+        else closeRef.current?.();
         return;
       }
 
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        onPrev?.();
+        e.stopPropagation();
+        lastNavTsRef.current = now;
+        prevRef.current?.();
         return;
       }
 
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        onNext?.();
+        e.stopPropagation();
+        lastNavTsRef.current = now;
+        nextRef.current?.();
         return;
       }
     }
 
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [open, onPrev, onNext, onClose, isFullScreen]);
+  }, [open]);
 
-  // overlay close
   const closeIfOverlay = (e) => {
     if (e.target === e.currentTarget) onClose?.();
   };
@@ -289,8 +322,6 @@ export default function CardDemoModal({
     e.stopPropagation();
 
     setSelectedKey(key);
-
-    // ✅ open panel ONLY when user clicked element OR pressed layout button
     setPanelOpen(true);
 
     const st = layout[key] || {};
@@ -385,7 +416,9 @@ export default function CardDemoModal({
   const stS = layout.price_ils || DEFAULT_LAYOUT_CM.price_ils;
   const stU = layout.price_unit || DEFAULT_LAYOUT_CM.price_unit;
 
-  const controlsVisible = panelOpen; // ✅ IMPORTANT: fullscreen does NOT force controls open
+  const controlsVisible = panelOpen;
+
+  if (!isVisible) return null;
 
   return (
     <div
@@ -402,7 +435,9 @@ export default function CardDemoModal({
         }}
       >
         <div className="dilenCardDemoTop">
-          <div className="dilenCardDemoTitle">תצוגת כרטיס (דמו)</div>
+          <div className="dilenCardDemoTitle" dir="rtl" title={titleRow}>
+            {titleRow}
+          </div>
 
           <div className="topBtns">
             <button
@@ -483,6 +518,18 @@ export default function CardDemoModal({
               ✕
             </button>
           </div>
+        </div>
+
+        <div className="dilenCardDemoTips" dir="rtl">
+          <span className="tipPill">ניווט: ← / →</span>
+          <span className="tipDot">•</span>
+          <span className="tipPill">סגירה: Esc</span>
+          <span className="tipDot">•</span>
+          <span className="tipPill">גרירה: לחץ-גרור על הטקסט/אייקון</span>
+          <span className="tipDot">•</span>
+          <span className="tipPill">Layout: ⚙ לשינוי מיקום/גודל</span>
+          <span className="tipDot">•</span>
+          <span className="tipPill">להדפסה מדויקת: Actual size / 100%</span>
         </div>
 
         <div className={`dilenCardDemoBody ${controlsVisible ? "panelOpen" : ""}`}>
@@ -705,118 +752,127 @@ export default function CardDemoModal({
 
           {/* ===== Card ===== */}
           <div className="dilenCardDemoStage" ref={stageRef}>
-            <div
-              className="cardScaler"
-              style={{ transform: isFullScreen ? `scale(${fsScale})` : "none" }}
-            >
+            {/* print wrapper */}
+            <div className="printWrap">
               <div
-                ref={cardRef}
-                className={`dilenCardDemoCard printArea ${suppressSelection ? "noSelectUI" : ""}`}
-                onMouseDown={(e) => {
-                  if (e.target === e.currentTarget || e.target.classList?.contains("cardBgImg")) {
-                    setSelectedKey(null);
-                  }
-                }}
-                style={{
-                  width: `${CARD_CM.w}cm`,
-                  height: `${CARD_CM.h}cm`,
-                  fontFamily: DEFAULT_FONT.family,
-                }}
+                className="cardScaler"
+                style={{ transform: isFullScreen ? `scale(${fsScale})` : "none" }}
               >
-                {backgroundUrl ? (
-                  <img className="cardBgImg" src={backgroundUrl} alt="" draggable={false} />
-                ) : null}
-
-                {/* Text blocks */}
-                {["line_1", "line_2", "line_3", "opt1", "opt2", "opt3", "english"].map((k) => {
-                  const f = fields.find((x) => x.key === k);
-                  const st = layout[k];
-                  if (!f || !st || !f.value) return null;
-
-                  return (
-                    <div
-                      key={k}
-                      className={`cardField ${k.startsWith("line_") ? "nowrapLine" : ""} ${
-                        selectedKey === k ? "cardFieldSel" : ""
-                      }`}
-                      style={{
-                        left: `${st.x}cm`,
-                        top: `${st.y}cm`,
-                        width: `${st.w}cm`,
-                        fontSize: `${st.size}px`,
-                        fontWeight: st.weight,
-                        color: st.color,
-                        textAlign: st.align || "center",
-                      }}
-                      onMouseDown={(e) => onMouseDownField(e, k)}
-                      title={`${k} (drag)`}
-                    >
-                      {f.value}
-                    </div>
-                  );
-                })}
-
-                {/* Icons */}
-                {["a1", "a2", "a3"].map((k) => {
-                  const f = fields.find((x) => x.key === k);
-                  const st = layout[k];
-                  if (!f || !st) return null;
-
-                  const src = f.value;
-                  if (src == null || src === "") return null;
-
-                  return (
-                    <img
-                      key={k}
-                      className={`cardFieldImg ${selectedKey === k ? "cardFieldSel" : ""}`}
-                      src={src}
-                      alt=""
-                      style={{
-                        left: `${st.x}cm`,
-                        top: `${st.y}cm`,
-                        width: `${st.w}cm`,
-                        height: `${st.h}cm`,
-                        zIndex: 10,
-                      }}
-                      onMouseDown={(e) => onMouseDownField(e, k)}
-                      draggable={false}
-                    />
-                  );
-                })}
-
-                {/* Price group */}
                 <div
-                  className={`priceGroup ${selectedKey === "price_group" ? "cardFieldSel" : ""}`}
-                  style={{
-                    left: `calc(50% + ${priceGroup.x}cm)`,
-                    top: `${priceGroup.y}cm`,
+                  ref={cardRef}
+                  className={`dilenCardDemoCard printArea ${suppressSelection ? "noSelectUI" : ""}`}
+                  onMouseDown={(e) => {
+                    if (e.target === e.currentTarget || e.target.classList?.contains("cardBgImg"))
+                      setSelectedKey(null);
                   }}
-                  onMouseDown={(e) => onMouseDownField(e, "price_group")}
-                  title="PRICE group (drag)"
+                  style={{
+                    width: `${CARD_CM.w}cm`,
+                    height: `${CARD_CM.h}cm`,
+                    fontFamily: DEFAULT_FONT.family,
+                  }}
                 >
-                  <span
-                    className={`pricePart ${selectedKey === "price_value" ? "cardFieldSel" : ""}`}
-                    style={{ fontSize: `${stP.size}px`, fontWeight: stP.weight, color: stP.color }}
-                    onMouseDown={(e) => onMouseDownField(e, "price_value")}
-                  >
-                    {priceValue}
-                  </span>
+                  {backgroundUrl ? (
+                    <img className="cardBgImg" src={backgroundUrl} alt="" draggable={false} />
+                  ) : null}
 
-                  <span
-                    className={`pricePart ${selectedKey === "price_ils" ? "cardFieldSel" : ""}`}
-                    style={{ fontSize: `${stS.size}px`, fontWeight: stS.weight, color: stS.color }}
-                    onMouseDown={(e) => onMouseDownField(e, "price_ils")}
-                  >
-                    {priceILS}
-                  </span>
+                  {/* Text blocks */}
+                  {["line_1", "line_2", "line_3", "opt1", "opt2", "opt3", "english"].map((k) => {
+                    const f = fields.find((x) => x.key === k);
+                    const st = layout[k];
+                    if (!f || !st || !f.value) return null;
 
-                  <span
-                    className={`pricePart ${selectedKey === "price_unit" ? "cardFieldSel" : ""}`}
-                    style={{ fontSize: `${stU.size}px`, fontWeight: stU.weight, color: stU.color }}
-                    onMouseDown={(e) => onMouseDownField(e, "price_unit")}
+                    return (
+                      <div
+                        key={k}
+                        className={`cardField ${k.startsWith("line_") ? "nowrapLine" : ""} ${
+                          selectedKey === k ? "cardFieldSel" : ""
+                        }`}
+                        style={{
+                          left: `${st.x}cm`,
+                          top: `${st.y}cm`,
+                          width: `${st.w}cm`,
+                          fontSize: `${st.size}px`,
+                          fontWeight: st.weight,
+                          color: st.color,
+                          textAlign: st.align || "center",
+                        }}
+                        onMouseDown={(e) => onMouseDownField(e, k)}
+                        title={`${k} (drag)`}
+                      >
+                        {f.value}
+                      </div>
+                    );
+                  })}
+
+                  {/* Icons */}
+                  {["a1", "a2", "a3"].map((k) => {
+                    const f = fields.find((x) => x.key === k);
+                    const st = layout[k];
+                    if (!f || !st) return null;
+
+                    const src = f.value;
+                    if (src == null || src === "") return null;
+
+                    return (
+                      <img
+                        key={k}
+                        className={`cardFieldImg ${selectedKey === k ? "cardFieldSel" : ""}`}
+                        src={src}
+                        alt=""
+                        style={{
+                          left: `${st.x}cm`,
+                          top: `${st.y}cm`,
+                          width: `${st.w}cm`,
+                          height: `${st.h}cm`,
+                          zIndex: 10,
+                        }}
+                        onMouseDown={(e) => onMouseDownField(e, k)}
+                        draggable={false}
+                      />
+                    );
+                  })}
+
+                  {/* Price group */}
+                  <div
+                    className={`priceGroup ${selectedKey === "price_group" ? "cardFieldSel" : ""}`}
+                    style={{ left: `calc(50% + ${priceGroup.x}cm)`, top: `${priceGroup.y}cm` }}
+                    onMouseDown={(e) => onMouseDownField(e, "price_group")}
+                    title="PRICE group (drag)"
                   >
-                    {priceUnit}
-                  </span>
+                    <span
+                      className={`pricePart ${selectedKey === "price_value" ? "cardFieldSel" : ""}`}
+                      style={{
+                        fontSize: `${stP.size}px`,
+                        fontWeight: stP.weight,
+                        color: stP.color,
+                      }}
+                      onMouseDown={(e) => onMouseDownField(e, "price_value")}
+                    >
+                      {priceValue}
+                    </span>
+                    <span
+                      className={`pricePart ${selectedKey === "price_ils" ? "cardFieldSel" : ""}`}
+                      style={{
+                        fontSize: `${stS.size}px`,
+                        fontWeight: stS.weight,
+                        color: stS.color,
+                      }}
+                      onMouseDown={(e) => onMouseDownField(e, "price_ils")}
+                    >
+                      {priceILS}
+                    </span>
+                    <span
+                      className={`pricePart ${selectedKey === "price_unit" ? "cardFieldSel" : ""}`}
+                      style={{
+                        fontSize: `${stU.size}px`,
+                        fontWeight: stU.weight,
+                        color: stU.color,
+                      }}
+                      onMouseDown={(e) => onMouseDownField(e, "price_unit")}
+                    >
+                      {priceUnit}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -831,73 +887,132 @@ export default function CardDemoModal({
         </div>
       </div>
 
-      {/* Print only the card */}
+      {/* ✅ PRINT: TRUE PHYSICAL SIZE 10x15cm (no “fit”), and no top-left shift */}
       <style>{`
         @media print{
-          body * { visibility: hidden !important; }
-          .printArea, .printArea * { visibility: visible !important; }
-          .printArea { position: fixed; inset: 0; display: grid; place-items: center; }
-          .dilenCardDemoCard{ box-shadow:none !important; border:0 !important; }
-          .cardFieldSel{ outline: none !important; background: transparent !important; box-shadow:none !important; }
+          /* This forces the PRINTED PAGE to be exactly 10x15cm.
+             That is the only reliable way to guarantee the physical size at 100%. */
+          @page { size: 10cm 15cm; margin: 0; }
+
+          html, body{
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 10cm !important;
+            height: 15cm !important;
+            overflow: hidden !important;
+          }
+
+          body{
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          /* hide everything */
+          body *{ visibility: hidden !important; }
+
+          /* show only our print wrapper */
+          .printWrap, .printWrap *{ visibility: visible !important; }
+
+          /* Make the wrapper EXACTLY page-sized and pinned to page origin.
+             No centering needed (card is same size), so it cannot drift to top-left incorrectly. */
+          .printWrap{
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 10cm !important;
+            height: 15cm !important;
+            display: block !important;
+            background: transparent !important;
+          }
+
+          /* prevent any UI scaling affecting print */
+          .cardScaler{ transform: none !important; }
+
+          /* enforce exact card size */
+          .printArea{
+            width: 10cm !important;
+            height: 15cm !important;
+            margin: 0 !important;
+            border: 0 !important;
+            box-shadow: none !important;
+          }
+
+          .cardFieldSel{
+            outline: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+          }
         }
       `}</style>
 
+      {/* ✅ ELEGANT DESIGN (same colors, cleaner / more “luxury tech”, less noisy) */}
       <style>{`
-        /* ===== OVERLAY / MODAL PROFESSIONAL LOOK ===== */
+        :root{
+          --neo-bg: rgba(6,8,14,0.78);
+          --neo-panel: rgba(12,16,28,0.72);
+          --neo-border: rgba(135, 160, 255, 0.18);
+          --neo-text: rgba(240, 246, 255, 0.92);
+          --neo-sub: rgba(240, 246, 255, 0.64);
+          --neo-cyan: #2AF6FF;
+          --neo-violet: #B26BFF;
+          --soft-shadow: 0 26px 96px rgba(0,0,0,0.56);
+          --ring: 0 0 0 3px rgba(42,246,255,0.14);
+        }
+
         .dilenCardDemoOverlay{
-  position:fixed; inset:0;
-  background:rgba(0,0,0,0.35);
-  display:grid;
-  place-items:center;
-  z-index:99999;
-
-  /* ✅ 20px margin from screen edges */
-  padding:40px;
-}
-.dilenCardDemoStage { position: relative; }
-
-.dilenCardDemoHint {
-  position: absolute;
-  bottom: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-}
+          position: fixed;
+          inset: 0;
+          display: grid;
+          place-items: center;
+          padding: 26px;
+          z-index: 99999;
+          background:
+            radial-gradient(900px 600px at 18% 12%, rgba(42,246,255,0.16), transparent 60%),
+            radial-gradient(900px 600px at 86% 72%, rgba(178,107,255,0.14), transparent 62%),
+            linear-gradient(180deg, rgba(5,7,12,0.86), rgba(3,4,8,0.90));
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
 
         .dilenCardDemoModal{
-  /* ✅ use full available area minus padding */
-  width: min(1120px, 100%);
-  
-  /* ✅ make it taller (+10%) but keep inside viewport */
-  height: min( calc(90vh * 1.10), 100% );
-
-  background:#fff;
-  border:1px solid #ddd;
-  border-radius:14px;
-  box-shadow:0 18px 50px rgba(0,0,0,0.25);
-  overflow:hidden;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-
-  /* ✅ keep layout stable */
-  display:flex;
-  flex-direction:column;
-}
+          width: min(1200px, 100%);
+          height: min(92vh, 940px);
+          border-radius: 22px;
+          overflow: hidden;
+          border: 1px solid rgba(135,160,255,0.14);
+          background: linear-gradient(180deg, rgba(14,18,30,0.86), rgba(10,12,22,0.74));
+          box-shadow: var(--soft-shadow);
+          color: var(--neo-text);
+          display: flex;
+          flex-direction: column;
+          font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        }
 
         .dilenCardDemoTop{
           display:flex;
           align-items:center;
           justify-content:space-between;
-          gap:10px;
-          padding:10px 12px;
-          border-bottom:1px solid rgba(0,0,0,0.06);
-          background: linear-gradient(#fbfbfc, #f6f7f9);
-          position: sticky;
-          top: 0;
-          z-index: 5;
+          gap:12px;
+          padding: 12px 14px;
+          border-bottom: 1px solid rgba(135,160,255,0.10);
+          background: linear-gradient(180deg, rgba(18,24,40,0.40), rgba(12,16,28,0.22));
         }
 
         .dilenCardDemoTitle{
-          font-weight: 1000;
+          max-width: 620px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-weight: 950;
           letter-spacing: 0.2px;
+          font-size: 13px;
+          padding: 8px 12px;
+          border-radius: 14px;
+          border: 1px solid rgba(42,246,255,0.16);
+          background:
+            linear-gradient(90deg, rgba(42,246,255,0.11), rgba(178,107,255,0.09)),
+            rgba(10,12,22,0.22);
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.22), 0 16px 54px rgba(0,0,0,0.26);
         }
 
         .topBtns{
@@ -908,186 +1023,166 @@ export default function CardDemoModal({
           justify-content:flex-end;
         }
 
-        .layoutBtn{
-          border:1px solid rgba(0,0,0,0.12);
-          background:#fff;
-          border-radius:12px;
-          height:36px;
-          padding:0 12px;
-          cursor:pointer;
-          font-weight:900;
-          box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+        .layoutBtn, .dilenCardDemoCloseBtn, .iconBtn{
+          height: 36px;
+          padding: 0 12px;
+          border-radius: 14px;
+          cursor: pointer;
+          font-weight: 950;
+          color: var(--neo-text);
+          border: 1px solid rgba(135,160,255,0.14);
+          background: rgba(10,12,22,0.26);
+          box-shadow: 0 14px 45px rgba(0,0,0,0.26);
+          transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
         }
-        .layoutBtn:hover{ background:#f4f6f8; }
+        .layoutBtn:hover, .iconBtn:hover{
+          filter: brightness(1.06);
+          box-shadow: 0 18px 60px rgba(0,0,0,0.34);
+        }
+        .layoutBtn:active, .iconBtn:active{ transform: translateY(1px); }
+        .layoutBtn:focus-visible{ outline: none; box-shadow: var(--ring), 0 18px 60px rgba(0,0,0,0.34); }
 
         .dilenCardDemoCloseBtn{
-          border:1px solid rgba(0,0,0,0.12);
-          background:#fff;
-          border-radius:12px;
-          height:36px;
-          width:44px;
-          cursor:pointer;
-          font-weight:900;
+          width: 44px;
+          padding: 0;
+          border-color: rgba(255,120,120,0.16);
         }
-        .dilenCardDemoCloseBtn:hover{ background:#ffecec; border-color:#ffb6b6; }
 
         .pagerWrap{
           display:flex;
           align-items:center;
           gap:8px;
-          padding: 0 6px;
-          border: 1px solid rgba(0,0,0,0.10);
-          border-radius: 12px;
+          padding: 0 10px;
+          border-radius: 16px;
+          border: 1px solid rgba(135,160,255,0.14);
+          background: rgba(10,12,22,0.22);
+          box-shadow: 0 14px 45px rgba(0,0,0,0.22);
           height: 36px;
-          background: #fff;
         }
-        .iconBtn{
-          height: 30px;
-          width: 32px;
-          border-radius: 10px;
-          border: 1px solid rgba(0,0,0,0.10);
-          background: #fff;
-          font-weight: 1000;
-          cursor: pointer;
-          line-height: 1;
-        }
-        .iconBtn:hover{ background:#f3f3f3; }
-
-        .pagerText{
-          font-weight: 1000;
-          min-width: 72px;
-          text-align:center;
-          opacity: 0.9;
-        }
+        .iconBtn{ width: 34px; padding: 0; line-height: 1; }
+        .pagerText{ font-weight: 950; min-width: 78px; text-align:center; color: var(--neo-sub); }
 
         .jumpInp{
-          width: 86px;
+          width: 92px;
           height: 30px;
-          border-radius: 10px;
-          border: 1px solid rgba(0,0,0,0.12);
+          border-radius: 12px;
+          border: 1px solid rgba(42,246,255,0.14);
+          background: rgba(5,7,12,0.22);
+          color: var(--neo-text);
           padding: 0 10px;
-          font-weight: 1000;
+          font-weight: 900;
           outline: none;
         }
+        .jumpInp:focus{ box-shadow: var(--ring); border-color: rgba(42,246,255,0.26); }
 
-        /* ===== BODY LAYOUT (IMPORTANT FIX) ===== */
+        .dilenCardDemoTips{
+          display:flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          padding: 10px 14px;
+          border-bottom: 1px solid rgba(135,160,255,0.08);
+          background: rgba(10,12,22,0.16);
+          color: var(--neo-sub);
+          font-size: 12px;
+        }
+        .tipPill{
+          padding: 6px 10px;
+          border-radius: 999px;
+          border: 1px solid rgba(135,160,255,0.14);
+          background: rgba(10,12,22,0.20);
+          color: var(--neo-sub);
+          white-space: nowrap;
+        }
+        .tipDot{ opacity: 0.34; padding: 0 2px; }
+
         .dilenCardDemoBody{
-          display:grid;
-          grid-template-columns: 0px 1fr; /* closed */
-          gap:12px;
-          padding:12px;
+          flex: 1;
+          overflow: auto;
+          display: grid;
+          grid-template-columns: 0px 1fr;
+          gap: 14px;
+          padding: 14px;
           transition: grid-template-columns 260ms ease;
           min-height: 520px;
         }
-        .dilenCardDemoBody.panelOpen{
-          grid-template-columns: 360px 1fr; /* open */
-        }
-        .dilenCardDemoBody{
-  /* ✅ body becomes scrollable inside the taller modal */
-  flex:1;
-  overflow:auto;
-}
+        .dilenCardDemoBody.panelOpen{ grid-template-columns: 370px 1fr; }
 
         .dilenCardDemoControls{
-          border:1px solid rgba(0,0,0,0.08);
-          border-radius:14px;
-          padding:12px;
-          background:#fff;
-          overflow:hidden;
+          border-radius: 18px;
+          padding: 12px;
+          border: 1px solid rgba(42,246,255,0.11);
+          background: rgba(10,12,22,0.26);
+          box-shadow: 0 18px 70px rgba(0,0,0,0.30);
           transform: translateX(-10px);
-          opacity:0;
-          pointer-events:none;
+          opacity: 0;
+          pointer-events: none;
           transition: transform 260ms ease, opacity 260ms ease;
-          box-shadow: 0 10px 30px rgba(0,0,0,0.06);
         }
-        .dilenCardDemoControls.show{
-          transform: translateX(0);
-          opacity:1;
-          pointer-events:auto;
-        }
+        .dilenCardDemoControls.show{ transform: translateX(0); opacity: 1; pointer-events: auto; }
 
-        .ctrlTitle{ font-weight:1000; font-size:14px; }
-        .ctrlSubTitle{ font-weight:1000; font-size:12px; margin-top:6px; }
-        .ctrlDivider{ height:1px; background:rgba(0,0,0,0.06); margin:8px 0; }
-        .ctrlRow{ display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:900; margin-top:10px; }
+        .ctrlTitle{ font-weight: 950; font-size: 13px; color: var(--neo-text); }
+        .ctrlSubTitle{ font-weight: 950; font-size: 12px; margin-top: 8px; color: var(--neo-sub); }
+        .ctrlDivider{ height: 1px; background: rgba(135,160,255,0.10); margin: 10px 0; }
+        .ctrlRow{ display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:900; margin-top:10px; color: var(--neo-sub); }
 
-        .ctrlGrid{
-          display:grid;
-          grid-template-columns: 1fr 1fr;
-          gap:10px;
-          margin-top:10px;
-        }
-        .ctrlBox{
-          display:flex;
-          flex-direction:column;
-          gap:6px;
-          font-size:12px;
-          font-weight:1000;
-        }
+        .ctrlGrid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px; }
+        .ctrlBox{ display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:950; color: var(--neo-sub); }
+
         .ctrlInp,.ctrlSel{
-          height:34px;
-          border:1px solid rgba(0,0,0,0.12);
-          border-radius:12px;
-          padding:0 10px;
-          font-size:13px;
-          outline:none;
-          background:#fff;
+          height: 34px;
+          border-radius: 12px;
+          border: 1px solid rgba(135,160,255,0.14);
+          background: rgba(5,7,12,0.18);
+          color: var(--neo-text);
+          padding: 0 10px;
+          outline: none;
         }
+        .ctrlInp:focus,.ctrlSel:focus{ box-shadow: var(--ring); border-color: rgba(42,246,255,0.22); }
 
         .ctrlBtn{
-          margin-top:12px;
-          height:38px;
-          border-radius:12px;
-          border:1px solid #0b63ff;
-          background:#0b63ff;
-          color:#fff;
-          font-weight:1000;
+          margin-top: 12px;
+          height: 40px;
+          border-radius: 14px;
+          border: 1px solid rgba(42,246,255,0.18);
+          background: linear-gradient(90deg, rgba(42,246,255,0.14), rgba(178,107,255,0.12));
+          color: var(--neo-text);
+          font-weight: 950;
           cursor:pointer;
+          box-shadow: 0 18px 70px rgba(0,0,0,0.28);
         }
-        .ctrlBtn:hover{ filter: brightness(0.98); }
         .ctrlBtn2{
-          margin-top:8px;
-          height:38px;
-          border-radius:12px;
-          border:1px solid rgba(0,0,0,0.12);
-          background:#fff;
-          font-weight:1000;
+          margin-top: 8px;
+          height: 40px;
+          border-radius: 14px;
+          border: 1px solid rgba(135,160,255,0.14);
+          background: rgba(5,7,12,0.14);
+          color: var(--neo-text);
+          font-weight: 950;
           cursor:pointer;
         }
-        .ctrlBtn2:hover{ background:#f4f6f8; }
 
-        .ctrlHint{
-          font-size:12px;
-          opacity:0.8;
-          line-height:1.35;
-          margin-top:8px;
-        }
+        .ctrlHint{ font-size: 12px; opacity: 0.88; line-height: 1.35; margin-top: 10px; color: var(--neo-sub); }
 
-        /* ===== STAGE ===== */
         .dilenCardDemoStage{
           display:grid;
-          gap:10px;
+          gap: 10px;
           justify-items:center;
           align-content:center;
           position: relative;
         }
 
-        .cardScaler{
-          transform-origin: center center;
-          display: inline-block;
-        }
+        .printWrap{ display:grid; place-items:center; }
+        .cardScaler{ transform-origin: center center; display: inline-block; }
 
         .dilenCardDemoCard{
-          border:1px solid rgba(0,0,0,0.18);
-          border-radius:14px;
-          background-size:cover;
-          background-position:center;
-          background-repeat:no-repeat;
-          position:relative;
-          overflow:hidden;
+          border: 1px solid rgba(0,0,0,0.12);
+          border-radius: 18px;
+          background: #fff;
+          position: relative;
+          overflow: hidden;
           direction: rtl;
-          background-color:#fff;
-          box-shadow: 0 12px 36px rgba(0,0,0,0.12);
+          box-shadow: 0 22px 56px rgba(0,0,0,0.16);
         }
 
         .cardBgImg{
@@ -1105,13 +1200,13 @@ export default function CardDemoModal({
 
         .cardField{
           position:absolute;
-          cursor:grab;
-          user-select:none;
-          padding:2px 4px;
-          border-radius:10px;
-          line-height:1.15;
-          white-space:pre-wrap;
-          word-break:break-word;
+          cursor: grab;
+          user-select: none;
+          padding: 2px 6px;
+          border-radius: 10px;
+          line-height: 1.15;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
 
         .nowrapLine{
@@ -1122,24 +1217,19 @@ export default function CardDemoModal({
 
         .cardFieldImg{
           position:absolute;
-          cursor:grab;
+          cursor: grab;
           user-select:none;
           border-radius:10px;
-          object-fit:contain;
+          object-fit: contain;
           pointer-events:auto;
         }
 
-        /* ✅ selection = light glow only (no dashed stroke) */
         .cardFieldSel{
           outline: none !important;
-          background: rgba(11,99,255,0.06);
-          box-shadow: 0 0 0 2px rgba(11,99,255,0.35), 0 10px 26px rgba(11,99,255,0.18);
+          background: rgba(42,246,255,0.09);
+          box-shadow: 0 0 0 2px rgba(42,246,255,0.26), 0 18px 45px rgba(42,246,255,0.12);
         }
-        .noSelectUI .cardFieldSel{
-          outline:none !important;
-          background:transparent !important;
-          box-shadow:none !important;
-        }
+        .noSelectUI .cardFieldSel{ background: transparent !important; box-shadow: none !important; }
 
         .priceGroup{
           position:absolute;
@@ -1151,66 +1241,38 @@ export default function CardDemoModal({
           direction: rtl;
           z-index: 20;
           cursor: grab;
-          padding: 2px 6px;
+          padding: 2px 8px;
           border-radius: 10px;
         }
-        .pricePart{
-          user-select:none;
-          cursor:grab;
-          white-space:nowrap;
-          background: transparent;
-        }
+        .pricePart{ user-select:none; cursor: grab; white-space: nowrap; background: transparent; }
 
         .dilenCardDemoHint{
-          font-size:9px;
-          opacity:0.55;
-          text-align:center;
+          font-size: 10px;
+          opacity: 0.72;
+          text-align: center;
+          color: var(--neo-sub);
         }
 
-        /* ===== FULLSCREEN MODE (IMPORTANT FIX) ===== */
-        .dilenCardDemoOverlay.fullscreen{
-          background: rgba(8, 10, 14, 0.82);
-          padding: 5px;
-        }
-
+        .dilenCardDemoOverlay.fullscreen{ padding: 6px; }
         .dilenCardDemoOverlay.fullscreen .dilenCardDemoModal{
           width: 100vw;
           height: 100vh;
           max-width: none;
           max-height: none;
           border-radius: 0;
-          box-shadow: none;
-          display:flex;
-          flex-direction:column;
         }
-
-        /* ✅ DO NOT FORCE 360px in fullscreen. Use same panelOpen logic. */
-        .dilenCardDemoOverlay.fullscreen .dilenCardDemoBody{
-          flex:1;
-          min-height: 0;
-        }
-
-        /* ✅ center the card ALWAYS in fullscreen */
-        .dilenCardDemoOverlay.fullscreen .dilenCardDemoStage{
-          height: 100%;
-          align-content: center;
-          display: grid;
-          place-items: center;
-        }
+        .dilenCardDemoOverlay.fullscreen .dilenCardDemoStage{ height: 100%; display:grid; place-items: center; }
 
         @media (max-width: 920px){
           .dilenCardDemoBody{ grid-template-columns: 1fr; }
           .dilenCardDemoBody.panelOpen{ grid-template-columns: 1fr; }
-          .dilenCardDemoControls{
-            transform:none;
-            opacity:1;
-            pointer-events:auto;
-          }
+          .dilenCardDemoControls{ transform:none; opacity:1; pointer-events:auto; }
+          .dilenCardDemoTitle{ max-width: 240px; }
         }
 
         @media (max-width: 520px){
           .dilenCardDemoCard{
-            width:92vw !important;
+            width: 92vw !important;
             height: calc(92vw * 1.5) !important;
             max-height: 78vh;
           }

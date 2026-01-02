@@ -778,6 +778,7 @@ function AdminPanel({ token, onLogout }) {
       option_3: finalOption(r.option_3_preset, r.option_3_custom),
       price: r.price,
       unit: r.unit,
+      price: fmtPrice2(r.price),
 
       // ✅ IMPORTANT: never send "0"
       alergonim_1: cleanSpaces(r.alergonim_1) === "0" ? "" : r.alergonim_1 || "",
@@ -1076,7 +1077,7 @@ function AdminPanel({ token, onLogout }) {
         r.line_2 = String(raw.line_2 ?? "");
         r.line_3 = String(raw.line_3 ?? "");
         r.english_name = String(raw.english_name ?? "");
-        r.price = String(raw.price ?? "");
+        r.price = fmtPrice2(raw.price ?? "");
         r.unit = String(raw.unit ?? "");
 
         r.option_1_custom = String(raw.option_1 ?? "");
@@ -2177,6 +2178,7 @@ function AdminPanel({ token, onLogout }) {
                         className="dilenInp"
                         value={r.price}
                         onChange={(e) => updateCell(realIndex, "price", e.target.value)}
+                        onBlur={(e) => updateCell(realIndex, "price", fmtPrice2(e.target.value))}
                         disabled={busy}
                       />
                     </td>
