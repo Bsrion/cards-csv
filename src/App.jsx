@@ -439,7 +439,7 @@ function normalizeImportedRow(raw) {
    ========================= */
 function Login({ onSuccess }) {
   const [user, setUser] = useState("1234");
-  const [pass, setPass] = useState("1234");
+  const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
