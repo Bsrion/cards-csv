@@ -15,6 +15,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import CardDemoModal from "./components/CardDemoModal.jsx";
+import "./App.css/";
 
 /**
  * ✅ API base
@@ -483,57 +484,6 @@ function Login({ onSuccess }) {
 
         {err && <div className="loginErr">{err}</div>}
       </div>
-
-      <style>{`
-        html, body { margin:0; padding:0; height:100%; }
-        .loginScreen{
-          min-height:100vh;
-          width:100vw;
-          display:grid;
-          place-items:center;
-          background:#f5f6f8;
-          font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-        }
-        .loginCard{
-          width:320px;
-          background:#fff;
-          border-radius:14px;
-          padding:16px;
-          border:1px solid #ddd;
-          box-shadow:0 12px 30px rgba(0,0,0,0.1);
-          display:grid;
-          gap:10px;
-        }
-        .loginCard h2{ margin:0 0 6px 0; text-align:center; }
-        .loginCard input{
-          height:38px;
-          border-radius:10px;
-          border:1px solid #ccc;
-          padding:0 10px;
-          font-size:14px;
-        }
-        .loginCard button{
-          height:40px;
-          border-radius:10px;
-          border:none;
-          background:#0b63ff;
-          color:#fff;
-          font-weight:800;
-          cursor:pointer;
-        }
-        .loginErr{
-          color:#b00020;
-          font-size:12px;
-          font-weight:800;
-          text-align:center;
-        }
-          
-        @media (prefers-color-scheme: dark){
-          .loginScreen{ background:#0f1115; }
-          .loginCard{ background:#151923; border-color:#2a3142; color:#fff; }
-          .loginCard input{ background:#0f1115; color:#fff; border-color:#2a3142; }
-        }
-      `}</style>
     </div>
   );
 }
@@ -1620,187 +1570,6 @@ function AdminPanel({ token, onLogout }) {
 
   return (
     <div className="dilenCardsApp" dir={RTL ? "rtl" : "ltr"}>
-      <style>{`
-        :root{ --bd:#d9d9d9; --bg:#ffffff; --warn:#b00020; --ok:#0b63ff; }
-        .dilenCardsApp{
-          padding:12px; background:var(--bg); color:#111;
-          font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; overflow-x:auto;
-        }
-        .dilenCardsApp *{ box-sizing:border-box; }
-        .dilenTop{ display:grid; gap:10px; }
-
-        .dilenBar{
-          display:flex; flex-wrap:wrap; align-items:center; gap:10px;
-          padding:10px; border:1px solid var(--bd); border-radius:10px; background:#fff;
-        }
-        .dilenTitle{ margin:0; font-size:20px; font-weight:900; letter-spacing:0.2px; }
-
-        .dilenBtn{
-          padding:6px 10px; border-radius:8px; border:1px solid var(--bd);
-          background:#fff; cursor:pointer; font-size:13px; font-weight:800; white-space:nowrap;
-        }
-        .dilenBtnPrimary{
-          padding:6px 10px; border-radius:8px; border:1px solid #0b63ff; background:#0b63ff;
-          cursor:pointer; color:#fff !important; font-size:13px; font-weight:900; white-space:nowrap;
-        }
-        .dilenBtnDanger{
-          padding:6px 10px; border-radius:8px; border:1px solid #b00020; background:#fff;
-          cursor:pointer; color:#b00020; font-size:13px; font-weight:900; white-space:nowrap;
-        }
-        .dilenBtnTiny{
-          padding:2px 6px; border-radius:8px; border:1px solid var(--bd);
-          background:#fff; cursor:pointer; font-size:11px; font-weight:900; white-space:nowrap;
-          position:relative;
-        }
-        .dilenBtn:disabled,.dilenBtnPrimary:disabled,.dilenBtnTiny:disabled,.dilenBtnDanger:disabled{
-          opacity:0.6; cursor:not-allowed;
-        }
-          .dilenBtnLoadDB--pulse{
-          border: 2px solid #16a34a !important;
-         animation: dilenGreenBorderPulse 1.5s ease-in-out infinite;
-        }
-
-        /* Pulse effect without changing layout too much */
-        @keyframes dilenGreenBorderPulse{
-          0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.0); }
-          50%  { box-shadow: 0 0 0 4px rgba(22,163,74,0.25); }
-          100% { box-shadow: 0 0 0 0 rgba(22,163,74,0.0); }
-        }
-
-        .dilenInp,.dilenSel{
-          height:26px; padding:3px 6px; font-size:12px;
-          border:1px solid var(--bd); border-radius:6px; width:100%; background:#fff; outline:none;
-        }
-        .dilenSel{ height:28px; }
-
-        .dilenToggles{
-          display:flex; flex-wrap:wrap; gap:14px; align-items:center;
-          padding:10px; border:1px solid var(--bd); border-radius:10px; background:#fafafa;
-        }
-        .dilenToggle{
-          display:flex; gap:8px; align-items:center; font-size:12px; white-space:nowrap; font-weight:900;
-          padding:6px 10px; border-radius:999px; border:1px solid #e5e5e5; background:#fff;
-        }
-
-        .dilenTableWrap{ margin-top:10px; border:1px solid var(--bd); border-radius:10px; overflow:auto; background:#fff; }
-        .dilenScroll{ overflow-x:auto; max-height:72vh; -webkit-overflow-scrolling: touch; }
-
-        table.dilenTable{
-          width:100%; border-collapse:collapse; table-layout:fixed;
-          min-width:1100px; background:#fff;
-        }
-
-        .dilenTable thead th{
-          position:sticky; top:0; z-index:5;
-          background:#f6f7f9; border-bottom:1px solid #ddd;
-          padding:6px 6px; font-size:12px; font-weight:900; text-align:start; white-space:nowrap;
-        }
-
-        .dilenTable tbody td{
-          padding:5px 6px; border-bottom:1px solid #eee; vertical-align:top; font-size:12px;
-        }
-
-        .dilenTable tbody tr:nth-child(even){ background:#fafafa; }
-        .dilenSortTh{ cursor:pointer; user-select:none; }
-        .dilenCenter{ text-align:center; }
-
-        .dilenCode{
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size:11px; background:#f2f2f2; padding:1px 4px; border-radius:4px;
-          display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-        }
-
-        .dilenEnglishRow{ display:flex; gap:4px; align-items:center; }
-        .dilenEnglishRow button{ padding:4px 6px; font-size:11px; }
-
-        .dilenSmall{ font-size:11px; opacity:0.75; margin-top:4px; line-height:1.2; }
-        .warnText{ color:#b00020; font-weight:900; }
-
-        /* column sizes */
-        .col-num{ width:45px; }
-        .col-save{ width:55px; }
-        .col-line{ width:140px; }
-        .col-english{ width:220px; }
-        .col-note{ width:170px; }
-        .col-price{ width:70px; }
-        .col-unit{ width:90px; }
-        .col-aler{ width:65px; }
-        .col-actions{ width:190px; }
-
-        .optionCell{ display:grid; gap:4px; }
-
-        .dilenAlerWrap{ display:flex; flex-direction:column; gap:4px; }
-        .dilenAlerTop{ display:flex; gap:4px; align-items:center; }
-        .dilenAlerSel{ height:22px; font-size:11px; padding:1px 4px; }
-        .dilenAlerManual{ height:22px; font-size:10px; padding:1px 4px; }
-        .dilenLock{ font-size:11px; opacity:0.65; line-height:1; }
-
-        .balloon{
-          position:absolute;
-          bottom:110%;
-          left:50%;
-          transform:translateX(-50%);
-          background:#111;
-          color:#fff;
-          font-size:11px;
-          font-weight:900;
-          padding:6px 8px;
-          border-radius:10px;
-          white-space:nowrap;
-          z-index:999;
-          box-shadow: 0 8px 20px rgba(0,0,0,0.18);
-        }
-        .balloon:after{
-          content:"";
-          position:absolute;
-          top:100%;
-          left:50%;
-          transform:translateX(-50%);
-          border:7px solid transparent;
-          border-top-color:#111;
-        }
-
-        .dirtyDot{
-          display:inline-block;
-          width:8px; height:8px;
-          border-radius:999px;
-          background:#ffb300;
-          margin-inline-start:6px;
-          vertical-align:middle;
-        }
-.thIconWrap{
-  display:inline-flex;
-  align-items:center;
-  gap:4px;
-}
-
-.thIcon{
-  width:16px;
-  height:16px;
-  opacity:0.75;
-}
-
-.thIconNum{
-  font-size:11px;
-  font-weight:800;
-  opacity:0.65;
-}
-
-/* soften sort arrows */
-.sortMark{
-  font-size:11px;
-  opacity:0.45;
-  margin-inline-start:2px;
-}
-
-        /* force light controls */
-        .dilenCardsApp, .dilenCardsApp * { color-scheme: light !important; }
-        .dilenCardsApp input, .dilenCardsApp select, .dilenCardsApp button, .dilenCardsApp textarea {
-          background:#fff !important; color:#111 !important;
-        }
-        .dilenCardsApp ::placeholder { color: rgba(0,0,0,0.45) !important; }
-      `}</style>
-
       <div className="dilenTop">
         <div className="dilenBar">
           <h1 className="dilenTitle">ניהול כרטיסי תצוגה</h1>
@@ -1939,21 +1708,6 @@ function AdminPanel({ token, onLogout }) {
             {allChecked ? " בטל בחירת כל הכרטיסים ✗" : "בחר הכל ✓"}
           </label>
 
-          <div className="dilenToggle" style={{ borderStyle: "dashed", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
-            <span className="dilenCode">{dirtyCount + newCount}</span>
-
-            <ClearableInput
-              value={demoSearch}
-              onChange={setDemoSearch}
-              placeholder="חיפוש בתוך התצוגה..."
-              disabled={busy}
-              style={{ width: 260 }}
-              onEnter={openDemoFirst}
-            />
-
-            {/* (your Step 5 controls stay here too if you added them) */}
-          </div>
           <div
             style={{
               display: "flex",
@@ -1976,9 +1730,26 @@ function AdminPanel({ token, onLogout }) {
             <ClearableInput
               value={search}
               onChange={setSearch}
-              placeholder="חפש..."
+              placeholder="חפש בטבלה..."
               disabled={busy}
               style={{ width: 320 }}
+            />
+            <div
+              className="dilenToggle"
+              style={{ borderStyle: "dashed", gap: 10, flexWrap: "wrap" }}
+            >
+              <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
+              <span className="dilenCode">{dirtyCount + newCount}</span>
+
+              {/* (your Step 5 controls stay here too if you added them) */}
+            </div>
+            <ClearableInput
+              value={demoSearch}
+              onChange={setDemoSearch}
+              placeholder="חיפוש בתוך התצוגה..."
+              disabled={busy}
+              style={{ width: 260 }}
+              onEnter={openDemoFirst}
             />
 
             <span className="dilenCode" title="כמה כרטיסים יש בתצוגה">

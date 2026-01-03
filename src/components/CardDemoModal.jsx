@@ -30,26 +30,26 @@ const ALERGEN_ICON_URLS = {
 
 // ----- defaults (cm) -----
 const DEFAULT_LAYOUT_CM = {
-  line_1: { x: 0.8, y: 3.5, w: 8.4, size: 40, weight: 800, align: "center" },
-  line_2: { x: 0.8, y: 4.6, w: 8.4, size: 40, weight: 800, align: "center" },
-  line_3: { x: 0.8, y: 5.6, w: 8.4, size: 40, weight: 800, align: "center" },
-  english: { x: 0.8, y: 9.0, w: 8.4, size: 14, weight: 600, align: "center" },
+  line_1: { x: 0.8, y: 3.5, w: 9, size: 40, weight: 800, align: "center" },
+  line_2: { x: 0.8, y: 4.6, w: 9, size: 40, weight: 800, align: "center" },
+  line_3: { x: 0.8, y: 5.6, w: 9, size: 40, weight: 800, align: "center" },
+  english: { x: 0.8, y: 9.0, w: 9, size: 14, weight: 600, align: "center" },
 
-  opt1: { x: 0.8, y: 10.9, w: 8.4, size: 15, weight: 700, align: "center" },
-  opt2: { x: 0.8, y: 11.5, w: 8.4, size: 15, weight: 700, align: "center" },
-  opt3: { x: 0.8, y: 12.1, w: 8.4, size: 15, weight: 700, align: "center" },
+  opt1: { x: 0.8, y: 10.9, w: 9, size: 15, weight: 700, align: "center" },
+  opt2: { x: 0.8, y: 11.5, w: 9, size: 15, weight: 700, align: "center" },
+  opt3: { x: 0.8, y: 12.1, w: 9, size: 15, weight: 700, align: "center" },
 
-  a1: { x: 8.5, y: 10.7, w: 1.0, h: 1.0 },
-  a2: { x: 8.5, y: 11.3, w: 1.0, h: 1.0 },
-  a3: { x: 8.5, y: 11.9, w: 1.0, h: 1.0 },
+  a1: { x: 8.7, y: 10.7, w: 1.0, h: 1.0 },
+  a2: { x: 8.7, y: 11.3, w: 1.0, h: 1.0 },
+  a3: { x: 8.7, y: 11.9, w: 1.0, h: 1.0 },
 
   // PRICE GROUP controls X/Y (group)
   price_group: { x: 0.0, y: 12.7 },
 
   // price parts style only
   price_value: { size: 42, weight: 900, color: "#111" },
-  price_ils: { size: 16, weight: 900, color: "#111" },
-  price_unit: { size: 16, weight: 800, color: "#111" },
+  price_ils: { size: 16, weight: 700, color: "#111" },
+  price_unit: { size: 16, weight: 700, color: "#111" },
 };
 
 function pxToCm(px) {
@@ -93,7 +93,7 @@ function buildDefaultLayout(keys) {
     out[key] = {
       x: preset.x ?? 0.8,
       y: preset.y ?? 1.0,
-      w: preset.w ?? 8.4,
+      w: preset.w ?? 9,
       h: preset.h ?? 1.0,
       size: preset.size ?? DEFAULT_FONT.size,
       weight: preset.weight ?? DEFAULT_FONT.weight,
@@ -261,6 +261,17 @@ export default function CardDemoModal(props) {
     });
   }
 
+  function commitSearch(next) {
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingRef.current = false;
+    onSearchRef.current?.(cleanSpaces(next));
+  }
+
+  function clearSearch() {
+    setQ("");
+    commitSearch("");
+  }
+
   // ===== fit scaling + zoom =====
   const [fitScale, setFitScale] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -330,6 +341,12 @@ export default function CardDemoModal(props) {
   const [q, setQ] = useState("");
   const typingRef = useRef(false);
   const typingTimerRef = useRef(null);
+
+  const onSearchRef = useRef(onSearch);
+
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -593,65 +610,91 @@ export default function CardDemoModal(props) {
       setSuppressSelection(false);
     }
   }
-
   /* =======================
-     SEARCH (debounced)
-  ======================= */
-  const onSearchRef = useRef(onSearch);
-  useEffect(() => {
-    onSearchRef.current = onSearch;
-  }, [onSearch]);
+   SWIPE (touch only) – more sensitive + smoother
+======================= */
+  const swipeRef = useRef({
+    active: false,
+    id: null,
+    x0: 0,
+    y0: 0,
+    x: 0,
+    y: 0,
+    t0: 0,
+  });
 
-  useEffect(() => {
-    if (!open) return;
-
-    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    typingRef.current = true;
-
-    typingTimerRef.current = setTimeout(() => {
-      typingRef.current = false;
-      onSearchRef.current?.(cleanSpaces(q));
-    }, 180);
-
-    return () => {
-      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    };
-  }, [q, open]);
-
-  function commitSearch(next) {
-    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    typingRef.current = false;
-    onSearchRef.current?.(cleanSpaces(next));
+  function isInteractiveTarget(el) {
+    if (!el) return false;
+    const tag = (el.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "button" || tag === "select") return true;
+    if (el.closest?.("button,input,textarea,select")) return true;
+    return false;
   }
-
-  function clearSearch() {
-    setQ("");
-    commitSearch("");
-  }
-
-  /* =======================
-     SWIPE (touch only)
-  ======================= */
-  const swipeRef = useRef({ active: false, x: 0, y: 0, t: 0 });
 
   function onPointerDown(e) {
     if (e.pointerType !== "touch") return;
-    swipeRef.current = { active: true, x: e.clientX, y: e.clientY, t: Date.now() };
+    if (isInteractiveTarget(e.target)) return;
+
+    swipeRef.current = {
+      active: true,
+      id: e.pointerId,
+      x0: e.clientX,
+      y0: e.clientY,
+      x: e.clientX,
+      y: e.clientY,
+      t0: performance.now(),
+    };
+  }
+
+  function onPointerMove(e) {
+    if (e.pointerType !== "touch") return;
+    const s = swipeRef.current;
+    if (!s.active || s.id !== e.pointerId) return;
+
+    s.x = e.clientX;
+    s.y = e.clientY;
+
+    // If user clearly scrolls vertically early – cancel swipe
+    const dx = s.x - s.x0;
+    const dy = s.y - s.y0;
+    if (Math.abs(dy) > Math.abs(dx) * 1.35 && Math.abs(dy) > 14) {
+      s.active = false;
+    }
   }
 
   function onPointerUp(e) {
     if (e.pointerType !== "touch") return;
     const s = swipeRef.current;
-    if (!s.active) return;
-    swipeRef.current.active = false;
+    if (!s.active || s.id !== e.pointerId) return;
+    s.active = false;
 
-    const dx = e.clientX - s.x;
-    const dy = e.clientY - s.y;
-    const dt = Date.now() - s.t;
+    const x1 = s.x ?? e.clientX;
+    const y1 = s.y ?? e.clientY;
 
-    if (dt > 900) return;
-    if (Math.abs(dx) < 60) return;
-    if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    const dx = x1 - s.x0;
+    const dy = y1 - s.y0;
+    const dt = performance.now() - s.t0;
+
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    // sensitivity knobs
+    const MIN_DX = 34; // was 60
+    const MAX_DT = 1100; // allow slower
+    const DOMINANCE = 0.75; // allow a bit more vertical
+    const MIN_VEL = 0.38; // px/ms  (≈ 380px/sec)
+
+    const vel = absDx / Math.max(1, dt);
+
+    // Accept either:
+    // 1) normal swipe: distance big enough + mostly horizontal
+    // 2) fast swipe: smaller distance but high velocity + mostly horizontal
+    const mostlyHorizontal = absDx >= absDy * DOMINANCE;
+
+    const okNormal = absDx >= MIN_DX && dt <= MAX_DT && mostlyHorizontal;
+    const okFast = absDx >= 22 && vel >= MIN_VEL && dt <= MAX_DT && mostlyHorizontal;
+
+    if (!(okNormal || okFast)) return;
 
     if (dx < 0) onNext?.(); // swipe left => next
     else onPrev?.(); // swipe right => prev
@@ -659,7 +702,8 @@ export default function CardDemoModal(props) {
 
   function onPointerCancel(e) {
     if (e.pointerType !== "touch") return;
-    swipeRef.current.active = false;
+    const s = swipeRef.current;
+    if (s.id === e.pointerId) s.active = false;
   }
 
   // ===== layout helpers =====
@@ -1103,6 +1147,7 @@ export default function CardDemoModal(props) {
             className="dilenCardDemoStage"
             ref={stageRef}
             onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerCancel}
           >

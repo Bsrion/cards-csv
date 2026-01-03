@@ -48,11 +48,11 @@
   display: flex !important;
 }
 
-#root > div > div.dilenCardDemoOverlay > div > main > aside {
+.dilenCardDemoControls .desktopOnly {
   display: block !important;
 }
 
-@media (max-width: 920px) {
+@media screen and (max-width: 920px) {
   .dilenCardDemoModal .desktopOnly {
     display: none !important;
   }
@@ -256,6 +256,7 @@
   grid-template-columns: auto auto 1fr;
   align-items: center;
   gap: 8px;
+  margin: 10px 0;
 }
 
 .mobileTitle {
@@ -278,11 +279,6 @@
 .mobileSearchWrap {
   width: 100%;
 }
-@media (max-width: 920px) {
-  .modalSearchInp {
-    width: 100%;
-  }
-}
 
 /* =========================
    Body layout
@@ -303,12 +299,37 @@
   grid-template-columns: 360px 1fr;
 }
 
-@media (max-width: 920px) {
+@media screen and (max-width: 920px) {
+  /* modal must be full screen */
+  .dilenCardDemoModal {
+    height: 100svh;
+  }
+
+  /* body becomes a flex column and can shrink properly */
   .dilenCardDemoBody {
     display: flex;
     flex-direction: column;
+    flex: 1;
+    min-height: 0; /* IMPORTANT: allows children to shrink */
     padding: 10px;
-    overflow-y: auto; /* scroll Y only if needed */
+    overflow: hidden; /* avoid double scroll */
+  }
+
+  /* stage takes the remaining space under the header */
+  .dilenCardDemoStage {
+    flex: 1;
+    min-height: 0;
+    height: auto; /* IMPORTANT: not 100svh */
+    margin-bottom: 12px;
+
+    /* swipe + selection behavior */
+    touch-action: pan-y; /* allow vertical scroll, keep our horizontal swipe */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .modalSearchInp {
+    width: 100%;
+    height: 30px;
   }
 }
 
@@ -322,7 +343,7 @@
   background: rgba(10, 12, 22, 0.22);
   overflow: auto;
   max-height: calc(100vh - 120px);
-
+  display: none;
   opacity: 0;
   transform: translateX(-10px);
   pointer-events: none;
@@ -439,6 +460,7 @@
   overflow: hidden;
   display: grid;
   place-items: center;
+  justify-content: center;
 }
 
 .cardScaler {
