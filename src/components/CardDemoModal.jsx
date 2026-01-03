@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// src/components/CardDemoModal.jsx
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import "./CardDemoModal.css";
 
 /* ================= BASE PATH HELPER ================= */
 const BASE = import.meta.env.BASE_URL || "/";
@@ -8,6 +10,10 @@ function withBase(path) {
 }
 
 const CARD_CM = { w: 10, h: 15 };
+
+// CSS “inch” is 96px, and 1 inch = 2.54 cm
+const CM_TO_PX = 96 / 2.54;
+const CARD_PX = { w: CARD_CM.w * CM_TO_PX, h: CARD_CM.h * CM_TO_PX };
 
 const DEFAULT_FONT = {
   family: `"Assistant", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`,
@@ -27,7 +33,6 @@ const DEFAULT_LAYOUT_CM = {
   line_1: { x: 0.8, y: 3.5, w: 8.4, size: 40, weight: 800, align: "center" },
   line_2: { x: 0.8, y: 4.6, w: 8.4, size: 40, weight: 800, align: "center" },
   line_3: { x: 0.8, y: 5.6, w: 8.4, size: 40, weight: 800, align: "center" },
-
   english: { x: 0.8, y: 9.0, w: 8.4, size: 14, weight: 600, align: "center" },
 
   opt1: { x: 0.8, y: 10.9, w: 8.4, size: 15, weight: 700, align: "center" },
@@ -48,7 +53,7 @@ const DEFAULT_LAYOUT_CM = {
 };
 
 function pxToCm(px) {
-  return px / 37.7952755906;
+  return px / CM_TO_PX;
 }
 function cleanSpaces(s) {
   return String(s ?? "")
@@ -65,6 +70,9 @@ function optionToIcon(opt) {
 }
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
+}
+function cloneLayout(obj) {
+  return JSON.parse(JSON.stringify(obj || {}));
 }
 
 function buildDefaultLayout(keys) {
@@ -106,10 +114,6 @@ async function ensurePdfLibs() {
   return { html2canvas, jsPDF };
 }
 
-function cloneLayout(obj) {
-  return JSON.parse(JSON.stringify(obj || {}));
-}
-
 export default function CardDemoModal(props) {
   const {
     open,
@@ -118,21 +122,20 @@ export default function CardDemoModal(props) {
     backgroundUrl = "",
     onPrev,
     onNext,
-    page,
-    total,
-    onJump,
 
-    // ✅ NEW: search integration to App.jsx filtering
+    // search integration
     onSearch, // (text) => void
-    searchValue = "", // current value from parent (optional)
+    searchValue = "", // controlled from parent
   } = props;
 
   const cardRef = useRef(null);
   const stageRef = useRef(null);
+  const scalerRef = useRef(null);
 
   const safeRow = row || {};
   const isVisible = Boolean(open && row);
 
+  // ===== build row values =====
   const opt1 = (safeRow.option_1_custom || safeRow.option_1_preset || "").trim();
   const opt2 = (safeRow.option_2_custom || safeRow.option_2_preset || "").trim();
   const opt3 = (safeRow.option_3_custom || safeRow.option_3_preset || "").trim();
@@ -152,7 +155,6 @@ export default function CardDemoModal(props) {
   const priceILS = "ש״ח";
   const priceUnit = cleanSpaces(safeRow.unit);
 
-  // ✅ title = 3 lines in ONE ROW
   const titleRow = useMemo(() => {
     const l1 = cleanSpaces(safeRow.line_1);
     const l2 = cleanSpaces(safeRow.line_2);
@@ -187,51 +189,48 @@ export default function CardDemoModal(props) {
   const fieldKeys = useMemo(() => fields.map((f) => f.key), [fields]);
   const defaultLayout = useMemo(() => buildDefaultLayout(fieldKeys), [fieldKeys.join("|")]);
 
+  // ===== layout state =====
   const [layout, setLayout] = useState(defaultLayout);
+  const layoutRef = useRef(layout);
+  useEffect(() => {
+    layoutRef.current = layout;
+  }, [layout]);
 
-  const [panelOpen, setPanelOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState(null);
   const [drag, setDrag] = useState(null);
-
-  const [jumpValue, setJumpValue] = useState(1);
   const [suppressSelection, setSuppressSelection] = useState(false);
 
-  // ✅ Fullscreen-only scaling
-  const [scale, setScale] = useState(1);
+  // ===== desktop tools =====
+  const [panelOpen, setPanelOpen] = useState(false);
 
-  // ✅ Search inside modal
-  const [q, setQ] = useState("");
-
-  // ✅ Undo/Redo (max 20 steps)
-  const [undoStack, setUndoStack] = useState([]); // past snapshots
-  const [redoStack, setRedoStack] = useState([]); // future snapshots
+  // Undo/Redo (max 20 steps)
   const MAX_HISTORY = 20;
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
 
-  function pushHistory(nextLayout) {
+  const canUndo = undoStack.length > 0;
+  const canRedo = redoStack.length > 0;
+
+  function pushUndo(snapshot) {
     setUndoStack((prev) => {
-      const next = [...prev, cloneLayout(nextLayout)];
+      const next = [...prev, cloneLayout(snapshot)];
       if (next.length > MAX_HISTORY) next.shift();
       return next;
     });
-    setRedoStack([]); // clear redo on new change
-  }
-
-  function canUndo() {
-    return undoStack.length > 0;
-  }
-  function canRedo() {
-    return redoStack.length > 0;
+    setRedoStack([]);
   }
 
   function doUndo() {
     setUndoStack((past) => {
-      if (past.length === 0) return past;
-      setRedoStack((future) => {
-        const nextFuture = [...future, cloneLayout(layout)];
-        if (nextFuture.length > MAX_HISTORY) nextFuture.shift();
-        return nextFuture;
-      });
+      if (!past.length) return past;
       const prevLayout = past[past.length - 1];
+
+      setRedoStack((future) => {
+        const next = [...future, cloneLayout(layoutRef.current)];
+        if (next.length > MAX_HISTORY) next.shift();
+        return next;
+      });
+
       setLayout(cloneLayout(prevLayout));
       return past.slice(0, -1);
     });
@@ -239,100 +238,181 @@ export default function CardDemoModal(props) {
 
   function doRedo() {
     setRedoStack((future) => {
-      if (future.length === 0) return future;
-      setUndoStack((past) => {
-        const nextPast = [...past, cloneLayout(layout)];
-        if (nextPast.length > MAX_HISTORY) nextPast.shift();
-        return nextPast;
-      });
+      if (!future.length) return future;
       const nextLayout = future[future.length - 1];
+
+      setUndoStack((past) => {
+        const next = [...past, cloneLayout(layoutRef.current)];
+        if (next.length > MAX_HISTORY) next.shift();
+        return next;
+      });
+
       setLayout(cloneLayout(nextLayout));
       return future.slice(0, -1);
     });
   }
 
-  // Reset on open
-  useEffect(() => {
-    if (!open) return;
-    setLayout(defaultLayout);
-    setPanelOpen(false);
-    setSelectedKey(null);
-    setDrag(null);
-    setScale(1);
-    setUndoStack([]);
-    setRedoStack([]);
-
-    // search input resets to parent value (or empty)
-    setQ(String(searchValue || ""));
-  }, [open, defaultLayout]);
-
-  useEffect(() => {
-    if (!open) return;
-    setJumpValue(page || 1);
-  }, [open, page]);
-
-  // keep input in sync if parent changes demoSearch while modal open
-  useEffect(() => {
-    if (!open) return;
-    setQ(String(searchValue || ""));
-  }, [open, searchValue]);
-
   function updateKey(key, patch, record = true) {
     setLayout((prev) => {
+      if (record) pushUndo(prev);
       const next = { ...prev };
       next[key] = { ...(next[key] || {}), ...patch };
-
-      if (record) pushHistory(prev); // record previous state
       return next;
     });
   }
 
-  // scale calc (always fullscreen)
+  // ===== fit scaling + zoom =====
+  const [fitScale, setFitScale] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  const [realSize, setRealSize] = useState(false);
+  const realSizeRef = useRef(false);
+
+  useEffect(() => {
+    realSizeRef.current = realSize;
+  }, [realSize]);
+
+  const scale = fitScale * zoom;
+
+  function zoomIn() {
+    setRealSize(false);
+    setZoom((z) => clamp(z * 1.1, 0.35, 3));
+  }
+  function zoomOut() {
+    setRealSize(false);
+    setZoom((z) => clamp(z / 1.1, 0.35, 3));
+  }
+  function zoomReset() {
+    setRealSize(false);
+    setZoom(1);
+  }
+  function toggleRealSize() {
+    if (!realSize) {
+      // final scale should become 1.0 => zoom = 1/fitScale
+      setZoom(clamp(1 / (fitScale || 1), 0.35, 3));
+      setRealSize(true);
+    } else {
+      setRealSize(false);
+      setZoom(1);
+    }
+  }
+
+  function calcFitOnce() {
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
+
+    const r = stageEl.getBoundingClientRect();
+    const pad = 18;
+
+    const availW = Math.max(0, r.width - pad * 2);
+    const availH = Math.max(0, r.height - pad * 2);
+
+    const raw = Math.min(availW / CARD_PX.w, (availH * 0.92) / CARD_PX.h);
+    const next = clamp(raw, 0.55, 3.2);
+
+    setFitScale((prev) => (Math.abs(prev - next) > 0.002 ? next : prev));
+  }
+
+  function fitToScreen() {
+    // IMPORTANT: unfreeze auto-fit immediately (ref first, then state)
+    realSizeRef.current = false;
+    setRealSize(false);
+
+    // back to “auto-fit zoom”
+    setZoom(1);
+
+    // force re-calc after layout settles (2 frames is safest)
+    requestAnimationFrame(() => requestAnimationFrame(calcFitOnce));
+  }
+
+  /* =======================
+     Reset on open
+  ======================= */
+  const [q, setQ] = useState("");
+  const typingRef = useRef(false);
+  const typingTimerRef = useRef(null);
+
   useEffect(() => {
     if (!open) return;
 
-    function calcScale() {
-      const stageEl = stageRef.current;
-      const cardEl = cardRef.current;
-      if (!stageEl || !cardEl) return;
+    setLayout(defaultLayout);
+    setSelectedKey(null);
+    setDrag(null);
+    setSuppressSelection(false);
 
-      const pad = 28;
-      const availW = stageEl.clientWidth - pad * 2;
-      const availH = stageEl.clientHeight - pad * 2;
+    setPanelOpen(false);
+    setUndoStack([]);
+    setRedoStack([]);
 
-      const baseW = cardEl.offsetWidth || 1;
-      const baseH = cardEl.offsetHeight || 1;
+    setFitScale(1);
+    setZoom(1);
+    setRealSize(false);
 
-      const s = Math.min(availW / baseW, availH / baseH);
-      setScale(Math.max(0.55, Math.min(3.2, s)));
-    }
-
-    const t = requestAnimationFrame(() => requestAnimationFrame(calcScale));
-    window.addEventListener("resize", calcScale);
-    return () => {
-      cancelAnimationFrame(t);
-      window.removeEventListener("resize", calcScale);
-    };
-  }, [open, row]);
-
-  // KEYBOARD: arrows + esc + enter for search + undo/redo
-  const prevRef = useRef(onPrev);
-  const nextRef = useRef(onNext);
-  const closeRef = useRef(onClose);
-  const lastNavTsRef = useRef(0);
+    setQ(String(searchValue || ""));
+  }, [open, defaultLayout]); // intentionally NOT including searchValue
 
   useEffect(() => {
-    prevRef.current = onPrev;
-    nextRef.current = onNext;
-    closeRef.current = onClose;
-  }, [onPrev, onNext, onClose]);
+    if (!open) return;
+    if (typingRef.current) return;
+    setQ(String(searchValue || ""));
+  }, [open, searchValue]);
+
+  /* =======================
+     SCALE AUTO-FIT
+  ======================= */
+  useLayoutEffect(() => {
+    if (!open) return;
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
+
+    let raf = 0;
+
+    const calc = () => {
+      if (typingRef.current) return;
+      if (realSizeRef.current) return; // freeze fitScale in 1:1 mode
+
+      const r = stageEl.getBoundingClientRect();
+      const pad = 18;
+
+      const availW = Math.max(0, r.width - pad * 2);
+      const availH = Math.max(0, r.height - pad * 2);
+
+      const raw = Math.min(availW / CARD_PX.w, (availH * 0.92) / CARD_PX.h);
+      const next = clamp(raw, 0.55, 3.2);
+
+      setFitScale((prev) => (Math.abs(prev - next) > 0.002 ? next : prev));
+    };
+
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(calc);
+    });
+
+    ro.observe(stageEl);
+    raf = requestAnimationFrame(calc);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [open, row, panelOpen, realSize]);
+
+  /* =======================
+     Keyboard shortcuts (desktop)
+  ======================= */
+  const onCloseRef = useRef(onClose);
+  const onPrevRef = useRef(onPrev);
+  const onNextRef = useRef(onNext);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    onPrevRef.current = onPrev;
+    onNextRef.current = onNext;
+  }, [onClose, onPrev, onNext]);
 
   useEffect(() => {
     if (!open) return;
 
     function onKeyDown(e) {
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-
       const el = e.target;
       const tag = (el?.tagName || "").toLowerCase();
       const typing =
@@ -341,70 +421,56 @@ export default function CardDemoModal(props) {
         el?.isContentEditable ||
         el?.closest?.("[contenteditable='true']");
 
-      // Undo/Redo even if not typing (but ignore when focus is in input with text editing shortcuts)
-      if (!typing) {
-        // Cmd/Ctrl+Z / Cmd/Ctrl+Shift+Z
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-          e.preventDefault();
-          if (e.shiftKey) doRedo();
-          else doUndo();
-          return;
-        }
+      // Undo/Redo
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) doRedo();
+        else doUndo();
+        return;
       }
 
-      // If focused in search input: Enter triggers search
-      if (tag === "input" && el?.classList?.contains("modalSearchInp")) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onSearch?.(cleanSpaces(q));
-        }
+      if (typing) {
         if (e.key === "Escape") {
           e.preventDefault();
-          setQ("");
-          onSearch?.("");
+          onCloseRef.current?.();
         }
         return;
       }
 
-      // normal nav (avoid repeats)
-      if (e.repeat) return;
-      const now = Date.now();
-      if (now - lastNavTsRef.current < 120) return;
-
       if (e.key === "Escape") {
         e.preventDefault();
-        e.stopPropagation();
-        lastNavTsRef.current = now;
-        closeRef.current?.();
+        onCloseRef.current?.();
         return;
       }
 
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        e.stopPropagation();
-        lastNavTsRef.current = now;
-        prevRef.current?.();
+        onPrevRef.current?.();
         return;
       }
-
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        e.stopPropagation();
-        lastNavTsRef.current = now;
-        nextRef.current?.();
+        onNextRef.current?.();
         return;
       }
     }
 
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [open, q, onSearch, layout]);
+  }, [open, canUndo, canRedo]);
 
+  /* =======================
+     CLOSE OVERLAY CLICK
+  ======================= */
   const closeIfOverlay = (e) => {
     if (e.target === e.currentTarget) onClose?.();
   };
 
+  /* =======================
+     FIELD DRAG (mouse)
+  ======================= */
   function clearSelectionIfClickOutsideCard(e) {
+    if (e.target.closest?.(".dilenTopBar")) return;
     if (e.target.closest?.(".dilenCardDemoControls")) return;
     if (cardRef.current && cardRef.current.contains(e.target)) return;
     setSelectedKey(null);
@@ -415,7 +481,6 @@ export default function CardDemoModal(props) {
     e.stopPropagation();
 
     setSelectedKey(key);
-    setPanelOpen(true);
 
     const st = layout[key] || {};
     const startXcm = st.x ?? 0;
@@ -431,65 +496,73 @@ export default function CardDemoModal(props) {
       startYpx: e.clientY,
       startXcm: st2.x ?? startXcm,
       startYcm: st2.y ?? startYcm,
-      // snapshot to allow one history push at end of drag
-      before: cloneLayout(layout),
+      scaleAtStart: scale || 1,
+      before: cloneLayout(layoutRef.current),
     });
   }
 
   function onMouseMove(e) {
     if (!drag) return;
 
-    const dx = pxToCm(e.clientX - drag.startXpx);
-    const dy = pxToCm(e.clientY - drag.startYpx);
+    const s = drag.scaleAtStart || 1;
+    const dx = pxToCm((e.clientX - drag.startXpx) / s);
+    const dy = pxToCm((e.clientY - drag.startYpx) / s);
 
     const nx = clamp(drag.startXcm + dx, -2, CARD_CM.w + 2);
     const ny = clamp(drag.startYcm + dy, -2, CARD_CM.h + 2);
 
-    // ✅ do NOT record history per mousemove
     updateKey(drag.key, { x: Number(nx.toFixed(2)), y: Number(ny.toFixed(2)) }, false);
   }
 
   function onMouseUp() {
     if (!drag) return;
-
-    // ✅ record one step for the whole drag
     const before = drag.before;
     setDrag(null);
 
-    // push "before" as undo step only if changed
-    const nowStr = JSON.stringify(layout);
+    const nowStr = JSON.stringify(layoutRef.current);
     const beforeStr = JSON.stringify(before);
-    if (nowStr !== beforeStr) {
-      setUndoStack((prev) => {
-        const next = [...prev, before];
-        if (next.length > MAX_HISTORY) next.shift();
-        return next;
-      });
-      setRedoStack([]);
-    }
+    if (nowStr !== beforeStr) pushUndo(before);
   }
 
+  /* =======================
+     PRINT
+  ======================= */
   function handlePrint() {
-    const prev = selectedKey;
+    const prevKey = selectedKey;
     setSelectedKey(null);
+
+    // safety: no scale while printing
+    const scalerEl = scalerRef.current;
+    const prevTransform = scalerEl?.style?.transform;
+    if (scalerEl) scalerEl.style.transform = "none";
+
     requestAnimationFrame(() => {
       window.print();
-      setTimeout(() => setSelectedKey(prev), 0);
+      setTimeout(() => {
+        if (scalerEl && prevTransform != null) scalerEl.style.transform = prevTransform;
+        setSelectedKey(prevKey);
+      }, 0);
     });
   }
 
+  /* =======================
+     PDF
+  ======================= */
   async function handleDownloadPdf() {
-    const prev = selectedKey;
+    const prevKey = selectedKey;
     setSelectedKey(null);
 
     await new Promise((r) => requestAnimationFrame(r));
+
+    const scalerEl = scalerRef.current;
+    const prevTransform = scalerEl?.style?.transform;
+    if (scalerEl) scalerEl.style.transform = "none";
 
     try {
       const el = cardRef.current;
       if (!el) return;
 
       setSuppressSelection(true);
-      setSelectedKey(null);
 
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
@@ -515,20 +588,81 @@ export default function CardDemoModal(props) {
       console.error(err);
       alert("PDF failed. Make sure you installed: npm i html2canvas jspdf");
     } finally {
-      setSelectedKey(prev);
+      if (scalerEl && prevTransform != null) scalerEl.style.transform = prevTransform;
+      setSelectedKey(prevKey);
       setSuppressSelection(false);
     }
   }
 
-  // Search actions
-  function runSearch() {
-    onSearch?.(cleanSpaces(q));
-  }
-  function clearSearch() {
-    setQ("");
-    onSearch?.("");
+  /* =======================
+     SEARCH (debounced)
+  ======================= */
+  const onSearchRef = useRef(onSearch);
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingRef.current = true;
+
+    typingTimerRef.current = setTimeout(() => {
+      typingRef.current = false;
+      onSearchRef.current?.(cleanSpaces(q));
+    }, 180);
+
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    };
+  }, [q, open]);
+
+  function commitSearch(next) {
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingRef.current = false;
+    onSearchRef.current?.(cleanSpaces(next));
   }
 
+  function clearSearch() {
+    setQ("");
+    commitSearch("");
+  }
+
+  /* =======================
+     SWIPE (touch only)
+  ======================= */
+  const swipeRef = useRef({ active: false, x: 0, y: 0, t: 0 });
+
+  function onPointerDown(e) {
+    if (e.pointerType !== "touch") return;
+    swipeRef.current = { active: true, x: e.clientX, y: e.clientY, t: Date.now() };
+  }
+
+  function onPointerUp(e) {
+    if (e.pointerType !== "touch") return;
+    const s = swipeRef.current;
+    if (!s.active) return;
+    swipeRef.current.active = false;
+
+    const dx = e.clientX - s.x;
+    const dy = e.clientY - s.y;
+    const dt = Date.now() - s.t;
+
+    if (dt > 900) return;
+    if (Math.abs(dx) < 60) return;
+    if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
+
+    if (dx < 0) onNext?.(); // swipe left => next
+    else onPrev?.(); // swipe right => prev
+  }
+
+  function onPointerCancel(e) {
+    if (e.pointerType !== "touch") return;
+    swipeRef.current.active = false;
+  }
+
+  // ===== layout helpers =====
   const selected = selectedKey ? layout[selectedKey] : null;
   const selectedField = selectedKey ? fields.find((f) => f.key === selectedKey) : null;
 
@@ -537,180 +671,203 @@ export default function CardDemoModal(props) {
   const stS = layout.price_ils || DEFAULT_LAYOUT_CM.price_ils;
   const stU = layout.price_unit || DEFAULT_LAYOUT_CM.price_unit;
 
-  const controlsVisible = panelOpen;
-
   if (!isVisible) return null;
 
   return (
     <div
-      className="dilenCardDemoOverlay fullscreen"
+      className="dilenCardDemoOverlay"
       onMouseDown={closeIfOverlay}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
     >
       <div
-        className="dilenCardDemoModal fullscreen"
+        className="dilenCardDemoModal"
         onMouseDown={(e) => {
           e.stopPropagation();
           clearSelectionIfClickOutsideCard(e);
         }}
       >
-        <div className="dilenCardDemoTop">
-          <div className="dilenCardDemoTitle" dir="rtl" title={titleRow}>
-            {titleRow}
-          </div>
-
-          <div className="topBtns">
-            <button
-              className="layoutBtn"
-              type="button"
-              onClick={() => {
-                setPanelOpen((v) => {
-                  const next = !v;
-                  if (next && !selectedKey) setSelectedKey("line_1");
-                  return next;
-                });
-              }}
-              aria-expanded={panelOpen ? "true" : "false"}
-              title="פתח/סגור Layout"
-            >
-              ⚙ Layout
-            </button>
-
-            <button
-              className="layoutBtn"
-              type="button"
-              onClick={doUndo}
-              disabled={!canUndo()}
-              title="Undo (Ctrl/Cmd+Z)"
-            >
-              ↶ Undo
-            </button>
-
-            <button
-              className="layoutBtn"
-              type="button"
-              onClick={doRedo}
-              disabled={!canRedo()}
-              title="Redo (Ctrl/Cmd+Shift+Z)"
-            >
-              ↷ Redo
-            </button>
-
-            <div className="pagerWrap" dir="ltr">
-              <button className="iconBtn" type="button" onClick={onPrev} title="קודם (←)">
-                ‹
+        {/* ================= TOP BAR ================= */}
+        <header className="dilenTopBar" dir="rtl">
+          {/* MOBILE: ONLY title + search + PDF + close */}
+          <div className="topMobile mobileOnly">
+            <div className="topMobileRow1">
+              <button className="iconPill danger" type="button" onClick={onClose} title="סגור">
+                ✕
               </button>
 
-              <div className="pagerText">
-                {page || 1}/{total || 1}
+              <button className="iconPill" type="button" onClick={handleDownloadPdf} title="PDF">
+                ⬇️
+              </button>
+
+              <div className="mobileTitle" title={titleRow}>
+                {titleRow}
+              </div>
+            </div>
+
+            <div className="topMobileRow2">
+              <div className="mobileSearchWrap" title="חיפוש">
+                <div className="modalSearchInputWrap">
+                  <input
+                    className="modalSearchInp"
+                    dir="rtl"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitSearch(q);
+                      }
+                    }}
+                    placeholder="חפש כרטיס..."
+                  />
+                  {q ? (
+                    <button
+                      className="modalSearchClear"
+                      type="button"
+                      onClick={clearSearch}
+                      title="נקה"
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* DESKTOP: FULL TOOLBAR */}
+          <div className="topDesktop desktopOnly">
+            <div className="topDesktopLeft">
+              <div className="navPill" title="ניווט (← / →)">
+                <button type="button" className="navPillBtn" onClick={onPrev} aria-label="קודם">
+                  →
+                </button>
+                <span className="navPillSep">/</span>
+                <button type="button" className="navPillBtn" onClick={onNext} aria-label="הבא">
+                  ←
+                </button>
               </div>
 
-              <button className="iconBtn" type="button" onClick={onNext} title="הבא (→)">
-                ›
+              <span className="pill">Esc</span>
+
+              <button className="pillBtn" type="button" onClick={handlePrint} title="הדפסה ב-100%">
+                🖨️ Print
               </button>
 
-              <input
-                dir="ltr"
-                type="number"
-                min={1}
-                max={Math.max(1, total || 1)}
-                value={jumpValue}
-                onChange={(e) => setJumpValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter") return;
-                  const n = Math.floor(Number(jumpValue));
-                  if (!Number.isFinite(n)) return;
-                  onJump?.(n);
+              <button
+                className={`pillBtn ${panelOpen ? "isActive" : ""}`}
+                type="button"
+                onClick={() => {
+                  setPanelOpen((v) => {
+                    const next = !v;
+                    if (next && !selectedKey) setSelectedKey("line_1");
+                    return next;
+                  });
                 }}
-                onBlur={() => {
-                  const n = Math.floor(Number(jumpValue));
-                  if (!Number.isFinite(n)) return;
-                  onJump?.(n);
-                }}
-                className="jumpInp"
-                title="קפוץ לעמוד (Enter או יציאה מהשדה)"
-              />
-            </div>
+                title="Layout"
+              >
+                ⚙ Layout
+              </button>
 
-            <button className="layoutBtn" type="button" onClick={handlePrint} title="הדפס">
-              🖨 Print
-            </button>
+              <button
+                className="pillBtn"
+                type="button"
+                onClick={doUndo}
+                disabled={!canUndo}
+                title="Undo (Ctrl/Cmd+Z)"
+              >
+                ↶
+              </button>
+              <button
+                className="pillBtn"
+                type="button"
+                onClick={doRedo}
+                disabled={!canRedo}
+                title="Redo (Ctrl/Cmd+Shift+Z)"
+              >
+                ↷
+              </button>
 
-            <button
-              className="layoutBtn"
-              type="button"
-              onClick={handleDownloadPdf}
-              title="הורד PDF"
-            >
-              ⬇️ PDF
-            </button>
-
-            <button className="dilenCardDemoCloseBtn" onClick={onClose} type="button" title="סגור">
-              ✕
-            </button>
-          </div>
-        </div>
-
-        {/* ✅ Guidelines row + SEARCH */}
-        <div className="dilenCardDemoTips" dir="rtl">
-          <span className="tipPill">ניווט: ← / →</span>
-          <span className="tipDot">•</span>
-          <span className="tipPill">סגירה: Esc</span>
-          <span className="tipDot">•</span>
-          <span className="tipPill">גרירה: לחץ-גרור על הטקסט/אייקון</span>
-          <span className="tipDot">•</span>
-          <span className="tipPill">Layout: ⚙ לשינוי מיקום/גודל</span>
-          <span className="tipDot">•</span>
-          <span className="tipPill">להדפסה מדויקת: Actual size / 100%</span>
-
-          <span className="tipDot">•</span>
-
-          {/* ✅ Search UI */}
-          <div className="modalSearchWrap" dir="rtl" title="Search inside modal (Enter or Search)">
-            <div className="modalSearchInputWrap">
-              <input
-                className="modalSearchInp"
-                dir="rtl"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search cards..."
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    runSearch();
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    clearSearch();
-                  }
-                }}
-              />
-              {q ? (
-                <button
-                  className="modalSearchClear"
-                  type="button"
-                  onClick={clearSearch}
-                  title="Clear"
-                >
-                  ✕
+              <div className="zoomGroup" title="Zoom">
+                <button className="pillBtn" type="button" onClick={zoomOut}>
+                  －
                 </button>
-              ) : null}
+                <button className="pillBtn" type="button" onClick={zoomIn}>
+                  ＋
+                </button>
+                <button
+                  className="pillBtn"
+                  type="button"
+                  onClick={fitToScreen}
+                  title="Fit to screen"
+                >
+                  ⤢
+                </button>
+
+                <button
+                  className={`pillBtn ${realSize ? "isActive" : ""}`}
+                  type="button"
+                  onClick={toggleRealSize}
+                  title="1:1"
+                >
+                  1:1
+                </button>
+              </div>
+
+              <div className="modalSearchWrap" title="חיפוש">
+                <div className="modalSearchInputWrap">
+                  <input
+                    className="modalSearchInp"
+                    dir="rtl"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitSearch(q);
+                      }
+                    }}
+                    placeholder="חפש כרטיס..."
+                  />
+                  {q ? (
+                    <button
+                      className="modalSearchClear"
+                      type="button"
+                      onClick={clearSearch}
+                      title="נקה"
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
-            <button className="modalSearchBtn" type="button" onClick={runSearch} title="Search">
-              Search
-            </button>
-          </div>
-        </div>
+            <div className="topDesktopRight">
+              <span className="titlePill" title={titleRow}>
+                {titleRow}
+              </span>
 
-        <div className={`dilenCardDemoBody ${controlsVisible ? "panelOpen" : ""}`}>
-          {/* ===== Controls ===== */}
-          <aside className={`dilenCardDemoControls ${controlsVisible ? "show" : "hide"}`}>
+              <button className="iconPill" type="button" onClick={handleDownloadPdf} title="PDF">
+                ⬇️
+              </button>
+
+              <button className="iconPill danger" type="button" onClick={onClose} title="סגור">
+                ✕
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* ================= BODY ================= */}
+        <main className={`dilenCardDemoBody ${panelOpen ? "panelOpen" : ""}`}>
+          {/* Desktop-only Layout Panel */}
+          <aside className={`dilenCardDemoControls desktopOnly ${panelOpen ? "show" : ""}`}>
             <div className="ctrlTitle">בקרת מיקום ועיצוב</div>
 
             {!selectedKey || !selected ? (
-              <div className="ctrlHint">בחר שדה מהתפריט.</div>
+              <div className="ctrlHint">בחר שדה כדי לערוך.</div>
             ) : (
               <>
                 <label className="ctrlRow">
@@ -733,7 +890,7 @@ export default function CardDemoModal(props) {
                 {selectedField?.type === "pricePart" ? (
                   <>
                     <div className="ctrlHint">
-                      X/Y של שורת המחיר נשלטים דרך: <b>PRICE group</b>
+                      X/Y של המחיר נשלטים ע״י: <b>PRICE group</b>
                     </div>
                     <PricePartControls
                       st={layout[selectedKey]}
@@ -770,6 +927,7 @@ export default function CardDemoModal(props) {
                     </div>
 
                     <div className="ctrlDivider" />
+
                     <div className="ctrlSubTitle">עיצוב PRICE</div>
                     <PricePartControls
                       st={stP}
@@ -924,42 +1082,43 @@ export default function CardDemoModal(props) {
                   </div>
                 )}
 
-                {/* ✅ Removed: Copy JSON button */}
-
                 <button
-                  className="ctrlBtn2"
+                  className="ctrlBtn"
                   type="button"
                   onClick={() => {
-                    // reset becomes one undo step
-                    pushHistory(layout);
+                    pushUndo(layoutRef.current);
                     setLayout(defaultLayout);
                   }}
                 >
                   איפוס ברירת מחדל
                 </button>
 
-                <div className="ctrlHint">
-                  טיפ: גרור על הכרטיס כדי להזיז אלמנטים. Undo/Redo עובד עד 20 צעדים.
-                </div>
+                <div className="ctrlHint">טיפ: Undo/Redo עובד עד 20 צעדים.</div>
               </>
             )}
           </aside>
 
-          {/* ===== Card ===== */}
-          <div className="dilenCardDemoStage" ref={stageRef}>
+          {/* Stage */}
+          <section
+            className="dilenCardDemoStage"
+            ref={stageRef}
+            onPointerDown={onPointerDown}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+          >
             <div className="printWrap">
-              <div className="cardScaler" style={{ transform: `scale(${scale})` }}>
+              <div ref={scalerRef} className="cardScaler" style={{ transform: `scale(${scale})` }}>
                 <div
                   ref={cardRef}
                   className={`dilenCardDemoCard printArea ${suppressSelection ? "noSelectUI" : ""}`}
-                  onMouseDown={(e) => {
-                    if (e.target === e.currentTarget || e.target.classList?.contains("cardBgImg"))
-                      setSelectedKey(null);
-                  }}
                   style={{
                     width: `${CARD_CM.w}cm`,
                     height: `${CARD_CM.h}cm`,
                     fontFamily: DEFAULT_FONT.family,
+                  }}
+                  onMouseDown={(e) => {
+                    if (e.target === e.currentTarget || e.target.classList?.contains("cardBgImg"))
+                      setSelectedKey(null);
                   }}
                 >
                   {backgroundUrl ? (
@@ -1000,9 +1159,8 @@ export default function CardDemoModal(props) {
                     const f = fields.find((x) => x.key === k);
                     const st = layout[k];
                     if (!f || !st) return null;
-
                     const src = f.value;
-                    if (src == null || src === "") return null;
+                    if (!src) return null;
 
                     return (
                       <img
@@ -1041,6 +1199,7 @@ export default function CardDemoModal(props) {
                     >
                       {priceValue}
                     </span>
+
                     <span
                       className={`pricePart ${selectedKey === "price_ils" ? "cardFieldSel" : ""}`}
                       style={{
@@ -1052,6 +1211,7 @@ export default function CardDemoModal(props) {
                     >
                       {priceILS}
                     </span>
+
                     <span
                       className={`pricePart ${selectedKey === "price_unit" ? "cardFieldSel" : ""}`}
                       style={{
@@ -1072,422 +1232,12 @@ export default function CardDemoModal(props) {
               גודל הכרטיס:{" "}
               <b>
                 {CARD_CM.w}cm × {CARD_CM.h}cm
-              </b>
+              </b>{" "}
+              <span className="mobileOnly">• ניווט: החלקה ימינה/שמאלה</span>
             </div>
-          </div>
-        </div>
+          </section>
+        </main>
       </div>
-
-      {/* ✅ PRINT: TRUE PHYSICAL SIZE 10x15cm */}
-      <style>{`
-        @media print{
-          @page { size: 10cm 15cm; margin: 0; }
-          html, body{
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 10cm !important;
-            height: 15cm !important;
-            overflow: hidden !important;
-          }
-          body{
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          body *{ visibility: hidden !important; }
-          .printWrap, .printWrap *{ visibility: visible !important; }
-
-          .printWrap{
-            position: fixed !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 10cm !important;
-            height: 15cm !important;
-            display: block !important;
-            background: transparent !important;
-          }
-
-          /* prevent fullscreen scale affecting print */
-          .cardScaler{ transform: none !important; }
-
-          .printArea{
-            width: 10cm !important;
-            height: 15cm !important;
-            margin: 0 !important;
-            border: 0 !important;
-            box-shadow: none !important;
-          }
-          .cardFieldSel{
-            outline: none !important;
-            background: transparent !important;
-            box-shadow: none !important;
-          }
-        }
-      `}</style>
-
-      {/* ✅ UI styles (fullscreen only) */}
-      <style>{`
-        :root{
-          --neo-bg: rgba(6,8,14,0.78);
-          --neo-panel: rgba(12,16,28,0.72);
-          --neo-border: rgba(135, 160, 255, 0.18);
-          --neo-text: rgba(240, 246, 255, 0.92);
-          --neo-sub: rgba(240, 246, 255, 0.64);
-          --neo-cyan: #2AF6FF;
-          --neo-violet: #B26BFF;
-          --soft-shadow: 0 26px 96px rgba(0,0,0,0.56);
-          --ring: 0 0 0 3px rgba(42,246,255,0.14);
-        }
-
-        .dilenCardDemoOverlay{
-          position: fixed;
-          inset: 0;
-          display: grid;
-          place-items: center;
-          padding: 6px;
-          z-index: 99999;
-          background:
-            radial-gradient(900px 600px at 18% 12%, rgba(42,246,255,0.16), transparent 60%),
-            radial-gradient(900px 600px at 86% 72%, rgba(178,107,255,0.14), transparent 62%),
-            linear-gradient(180deg, rgba(5,7,12,0.86), rgba(3,4,8,0.90));
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-        }
-
-        .dilenCardDemoModal{
-          width: 100vw;
-          height: 100vh;
-          border-radius: 0;
-          overflow: hidden;
-          border: 0;
-          background: linear-gradient(180deg, rgba(14,18,30,0.86), rgba(10,12,22,0.74));
-          box-shadow: none;
-          color: var(--neo-text);
-          display: flex;
-          flex-direction: column;
-          font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-        }
-
-        .dilenCardDemoTop{
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:12px;
-          padding: 12px 14px;
-          border-bottom: 1px solid rgba(135,160,255,0.10);
-          background: linear-gradient(180deg, rgba(18,24,40,0.40), rgba(12,16,28,0.22));
-        }
-
-        .dilenCardDemoTitle{
-          max-width: 620px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          font-weight: 950;
-          letter-spacing: 0.2px;
-          font-size: 13px;
-          padding: 8px 12px;
-          border-radius: 14px;
-          border: 1px solid rgba(42,246,255,0.16);
-          background:
-            linear-gradient(90deg, rgba(42,246,255,0.11), rgba(178,107,255,0.09)),
-            rgba(10,12,22,0.22);
-          box-shadow: 0 0 0 1px rgba(0,0,0,0.22), 0 16px 54px rgba(0,0,0,0.26);
-        }
-
-        .topBtns{
-          display:flex;
-          gap:10px;
-          align-items:center;
-          flex-wrap: wrap;
-          justify-content:flex-end;
-        }
-
-        .layoutBtn, .dilenCardDemoCloseBtn, .iconBtn{
-          height: 36px;
-          padding: 0 12px;
-          border-radius: 14px;
-          cursor: pointer;
-          font-weight: 950;
-          color: var(--neo-text);
-          border: 1px solid rgba(135,160,255,0.14);
-          background: rgba(10,12,22,0.26);
-          box-shadow: 0 14px 45px rgba(0,0,0,0.26);
-          transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
-        }
-        .layoutBtn:hover, .iconBtn:hover{
-          filter: brightness(1.06);
-          box-shadow: 0 18px 60px rgba(0,0,0,0.34);
-        }
-        .layoutBtn:active, .iconBtn:active{ transform: translateY(1px); }
-        .layoutBtn:disabled{ opacity:0.55; cursor:not-allowed; }
-
-        .dilenCardDemoCloseBtn{
-          width: 44px;
-          padding: 0;
-          border-color: rgba(255,120,120,0.16);
-        }
-
-        .pagerWrap{
-          display:flex;
-          align-items:center;
-          gap:8px;
-          padding: 0 10px;
-          border-radius: 16px;
-          border: 1px solid rgba(135,160,255,0.14);
-          background: rgba(10,12,22,0.22);
-          box-shadow: 0 14px 45px rgba(0,0,0,0.22);
-          height: 36px;
-        }
-        .iconBtn{ width: 34px; padding: 0; line-height: 1; }
-        .pagerText{ font-weight: 950; min-width: 78px; text-align:center; color: var(--neo-sub); }
-
-        .jumpInp{
-          width: 92px;
-          height: 30px;
-          border-radius: 12px;
-          border: 1px solid rgba(42,246,255,0.14);
-          background: rgba(5,7,12,0.22);
-          color: var(--neo-text);
-          padding: 0 10px;
-          font-weight: 900;
-          outline: none;
-        }
-        .jumpInp:focus{ box-shadow: var(--ring); border-color: rgba(42,246,255,0.26); }
-
-        .dilenCardDemoTips{
-          display:flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          align-items: center;
-          padding: 10px 14px;
-          border-bottom: 1px solid rgba(135,160,255,0.08);
-          background: rgba(10,12,22,0.16);
-          color: var(--neo-sub);
-          font-size: 12px;
-        }
-        .tipPill{
-          padding: 6px 10px;
-          border-radius: 999px;
-          border: 1px solid rgba(135,160,255,0.14);
-          background: rgba(10,12,22,0.20);
-          color: var(--neo-sub);
-          white-space: nowrap;
-        }
-        .tipDot{ opacity: 0.34; padding: 0 2px; }
-
-        /* ✅ Search */
-        .modalSearchWrap{
-          display:flex;
-          align-items:center;
-          gap: 8px;
-          margin-inline-start: 4px;
-        }
-        .modalSearchInputWrap{
-          position: relative;
-          display:flex;
-          align-items:center;
-        }
-        .modalSearchInp{
-  width: 260px;
-  height: 32px;
-  border-radius: 999px;
-  border: 1px solid rgba(42,246,255,0.18);
-  background: rgba(5,7,12,0.22);
-  color: var(--neo-text);
-  padding: 0 36px 0 12px;
-  outline: none;
-  font-weight: 900;
-}
-        .modalSearchInp:focus{
-          box-shadow: var(--ring);
-          border-color: rgba(42,246,255,0.32);
-        }
-       
-.modalSearchClear{
-  position: absolute;
-  left: 8px;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  border: 1px solid rgba(135,160,255,0.16);
-  background: rgba(10,12,22,0.26);
-  color: var(--neo-text);
-  cursor: pointer;
-  font-weight: 950;
-  line-height: 1;
-  display:grid;
-  place-items:center;
-}
-        .modalSearchBtn{
-          height: 32px;
-          padding: 0 12px;
-          border-radius: 999px;
-          cursor: pointer;
-          font-weight: 950;
-          color: var(--neo-text);
-          border: 1px solid rgba(135,160,255,0.14);
-          background: rgba(10,12,22,0.26);
-          box-shadow: 0 14px 45px rgba(0,0,0,0.22);
-        }
-        .modalSearchBtn:hover{ filter: brightness(1.06); }
-
-        .dilenCardDemoBody{
-          flex: 1;
-          overflow: hidden;
-          display: grid;
-          grid-template-columns: 0px 1fr;
-          gap: 14px;
-          padding: 14px;
-          transition: grid-template-columns 260ms ease;
-          min-height: 520px;
-        }
-        .dilenCardDemoBody.panelOpen{ grid-template-columns: 370px 1fr; }
-
-        .dilenCardDemoControls{
-          border-radius: 18px;
-          padding: 12px;
-          border: 1px solid rgba(42,246,255,0.11);
-          background: rgba(10,12,22,0.26);
-          box-shadow: 0 18px 70px rgba(0,0,0,0.30);
-          transform: translateX(-10px);
-          opacity: 0;
-          pointer-events: none;
-          transition: transform 260ms ease, opacity 260ms ease;
-          overflow: auto;
-          max-height: calc(100vh - 170px);
-        }
-        .dilenCardDemoControls.show{ transform: translateX(0); opacity: 1; pointer-events: auto; }
-
-        .ctrlTitle{ font-weight: 950; font-size: 13px; color: var(--neo-text); }
-        .ctrlSubTitle{ font-weight: 950; font-size: 12px; margin-top: 8px; color: var(--neo-sub); }
-        .ctrlDivider{ height: 1px; background: rgba(135,160,255,0.10); margin: 10px 0; }
-        .ctrlRow{ display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:900; margin-top:10px; color: var(--neo-sub); }
-
-        .ctrlGrid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px; }
-        .ctrlBox{ display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:950; color: var(--neo-sub); }
-
-        .ctrlInp,.ctrlSel{
-          height: 34px;
-          border-radius: 12px;
-          border: 1px solid rgba(135,160,255,0.14);
-          background: rgba(5,7,12,0.18);
-          color: var(--neo-text);
-          padding: 0 10px;
-          outline: none;
-        }
-        .ctrlInp:focus,.ctrlSel:focus{ box-shadow: var(--ring); border-color: rgba(42,246,255,0.22); }
-
-        .ctrlBtn2{
-          margin-top: 10px;
-          height: 40px;
-          border-radius: 14px;
-          border: 1px solid rgba(135,160,255,0.14);
-          background: rgba(5,7,12,0.14);
-          color: var(--neo-text);
-          font-weight: 950;
-          cursor:pointer;
-        }
-
-        .ctrlHint{ font-size: 12px; opacity: 0.88; line-height: 1.35; margin-top: 10px; color: var(--neo-sub); }
-
-        .dilenCardDemoStage{
-          display:grid;
-          gap: 10px;
-          justify-items:center;
-          align-content:center;
-          position: relative;
-          height: calc(100vh - 170px);
-        }
-
-        .printWrap{ display:grid; place-items:center; }
-        .cardScaler{ transform-origin: center center; display: inline-block; }
-
-        .dilenCardDemoCard{
-          border: 1px solid rgba(0,0,0,0.12);
-          border-radius: 18px;
-          background: #fff;
-          position: relative;
-          overflow: hidden;
-          direction: rtl;
-          box-shadow: 0 22px 56px rgba(0,0,0,0.16);
-        }
-
-        .cardBgImg{
-          position:absolute;
-          inset:0;
-          width:100%;
-          height:100%;
-          object-fit:cover;
-          z-index:0;
-          pointer-events:none;
-          user-select:none;
-        }
-
-        .cardField, .cardFieldImg, .priceGroup{ z-index:5; }
-
-        .cardField{
-          position:absolute;
-          cursor: grab;
-          user-select: none;
-          padding: 2px 6px;
-          border-radius: 10px;
-          line-height: 1.15;
-          white-space: pre-wrap;
-          word-break: break-word;
-        }
-
-        .nowrapLine{
-          white-space: nowrap !important;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .cardFieldImg{
-          position:absolute;
-          cursor: grab;
-          user-select:none;
-          border-radius:10px;
-          object-fit: contain;
-          pointer-events:auto;
-        }
-
-        .cardFieldSel{
-          outline: none !important;
-          background: rgba(42,246,255,0.09);
-          box-shadow: 0 0 0 2px rgba(42,246,255,0.26), 0 18px 45px rgba(42,246,255,0.12);
-        }
-        .noSelectUI .cardFieldSel{ background: transparent !important; box-shadow: none !important; }
-
-        .priceGroup{
-          position:absolute;
-          transform: translateX(-50%);
-          display:flex;
-          gap: 8px;
-          align-items: baseline;
-          justify-content:center;
-          direction: rtl;
-          z-index: 20;
-          cursor: grab;
-          padding: 2px 8px;
-          border-radius: 10px;
-        }
-        .pricePart{ user-select:none; cursor: grab; white-space: nowrap; background: transparent; }
-
-        .dilenCardDemoHint{
-          font-size: 10px;
-          opacity: 0.72;
-          text-align: center;
-          color: var(--neo-sub);
-        }
-
-        @media (max-width: 920px){
-          .dilenCardDemoBody{ grid-template-columns: 1fr; overflow:auto; }
-          .dilenCardDemoBody.panelOpen{ grid-template-columns: 1fr; }
-          .dilenCardDemoControls{ transform:none; opacity:1; pointer-events:auto; max-height:none; }
-          .dilenCardDemoTitle{ max-width: 240px; }
-          .dilenCardDemoStage{ height:auto; }
-        }
-      `}</style>
     </div>
   );
 }

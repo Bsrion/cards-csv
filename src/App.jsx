@@ -11,7 +11,7 @@
 
 // IMPORTANT (install deps):
 // npm i xlsx papaparse
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import CardDemoModal from "./components/CardDemoModal.jsx";
@@ -26,6 +26,9 @@ const API_BASE = IS_DEV ? "/api/" : `${import.meta.env.BASE_URL || "/"}projects/
 
 const TRANSLATE_ENDPOINT = `${API_BASE}translate.php`;
 const DB_ENDPOINT = `${API_BASE}cards.php`;
+
+const BASE = import.meta.env.BASE_URL || "/";
+const withBase = (p) => `${BASE}${p.replace(/^\/+/, "")}`;
 
 const UNIT_OPTIONS = ["ל-100 גרם", "ליח׳"];
 
@@ -524,6 +527,7 @@ function Login({ onSuccess }) {
           font-weight:800;
           text-align:center;
         }
+          
         @media (prefers-color-scheme: dark){
           .loginScreen{ background:#0f1115; }
           .loginCard{ background:#151923; border-color:#2a3142; color:#fff; }
@@ -574,11 +578,11 @@ function AdminPanel({ token, onLogout }) {
 
   const DEMO_CARD_BG = `${import.meta.env.BASE_URL}card_bg.png`;
 
-  const [busy, setBusy] = useState(false);
-  const [rtl, setRtl] = useState(true);
+  const RTL = true;
+  const FORCE_UNCHECK_ON_LOAD = true;
 
-  const [forceUncheckOnLoad, setForceUncheckOnLoad] = useState(true);
-  const [translateOnlyIfEmpty, setTranslateOnlyIfEmpty] = useState(true);
+  const [dbLoaded, setDbLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState("");
@@ -646,14 +650,6 @@ function AdminPanel({ token, onLogout }) {
       next[index] = row;
       return next;
     });
-  }
-  function openDemoFirst() {
-    if (!demoIndices.length) {
-      alert("אין כרטיסים מתאימים לתצוגה (בדוק מסומנים ✓ / חיפוש תצוגה).");
-      return;
-    }
-    setDemoIndex(demoIndices[0]); // first allowed card
-    setDemoOpen(true);
   }
 
   /** Option change + auto allergen if not locked */
@@ -776,9 +772,8 @@ function AdminPanel({ token, onLogout }) {
       option_1: finalOption(r.option_1_preset, r.option_1_custom),
       option_2: finalOption(r.option_2_preset, r.option_2_custom),
       option_3: finalOption(r.option_3_preset, r.option_3_custom),
-      price: r.price,
-      unit: r.unit,
       price: fmtPrice2(r.price),
+      unit: r.unit,
 
       // ✅ IMPORTANT: never send "0"
       alergonim_1: cleanSpaces(r.alergonim_1) === "0" ? "" : r.alergonim_1 || "",
@@ -1038,24 +1033,9 @@ function AdminPanel({ token, onLogout }) {
     const r = rows[index];
     const combined = combineLines(r.line_1, r.line_2, r.line_3);
     if (!combined) return;
-    if (translateOnlyIfEmpty && cleanSpaces(r.english_name)) return;
 
     const translated = await translateToEnglish(combined);
     updateCell(index, "english_name", translated);
-  }
-
-  async function autoTranslateAll() {
-    setBusy(true);
-    try {
-      for (let i = 0; i < rows.length; i++) {
-        // eslint-disable-next-line no-await-in-loop
-        await autoTranslateRow(i);
-      }
-    } catch (err) {
-      alert(`Translate error: ${err?.message || err}`);
-    } finally {
-      setBusy(false);
-    }
   }
 
   /** Load DB (auth) */
@@ -1109,7 +1089,7 @@ function AdminPanel({ token, onLogout }) {
         return r;
       });
 
-      const finalRows = forceUncheckOnLoad
+      const finalRows = FORCE_UNCHECK_ON_LOAD
         ? imported.map((r) => ({ ...r, is_selected: false }))
         : imported;
 
@@ -1120,6 +1100,8 @@ function AdminPanel({ token, onLogout }) {
       setRows([draft, ...finalRows]);
       setDupOnly(false);
       setDupClientIds([]);
+
+      setDbLoaded(true); // ✅ stop animation forever after successful load
     } catch (e) {
       alert(`DB load error: ${e?.message || e}`);
     } finally {
@@ -1501,25 +1483,18 @@ function AdminPanel({ token, onLogout }) {
     list = list.sort((a, b) => (b.row.is_new ? 1 : 0) - (a.row.is_new ? 1 : 0));
     return list;
   }, [rows, search, sortKey, sortDir, dupOnly, dupClientIds, showFrozenOnly]);
-  const demoIndices = useMemo(() => {
+  // ✅ Filtered list of REAL indices that are allowed in the modal
+  // ✅ Build indices once for ALL, once for CHECKED (no undefined vars ever)
+  const demoIndicesAll = useMemo(() => {
     const q = normalizeForSearch(demoSearch);
 
     return rows
       .map((r, i) => ({ r, i }))
       .filter(({ r }) => {
-        // hide draft row
-        if (r.is_new && !r.id) return false;
+        if (r.is_new && !r.id) return false; // hide draft
+        if (r.is_frozen) return false; // hide frozen
+        if (isRowEmptyForDB(r)) return false; // hide empty
 
-        // hide frozen
-        if (r.is_frozen) return false;
-
-        // hide empty cards
-        if (isRowEmptyForDB(r)) return false;
-
-        // only checked?
-        if (demoOnlyChecked && !r.is_selected) return false;
-
-        // search match?
         if (q) {
           const hay = [
             r.line_1,
@@ -1540,70 +1515,95 @@ function AdminPanel({ token, onLogout }) {
         return true;
       })
       .map(({ i }) => i);
-  }, [rows, demoOnlyChecked, demoSearch]);
+  }, [rows, demoSearch]);
 
+  const demoIndicesChecked = useMemo(() => {
+    // same list as ALL, but only checked
+    return demoIndicesAll.filter((i) => !!rows[i]?.is_selected);
+  }, [demoIndicesAll, rows]);
+
+  // ✅ The active list used by the modal navigation
+  const demoIndices = demoOnlyChecked ? demoIndicesChecked : demoIndicesAll;
+
+  // ✅ Counts for UI
+  const demoCountAll = demoIndicesAll.length;
+  const demoCountChecked = demoIndicesChecked.length;
+  const demoTotal = demoIndices.length;
+
+  // position inside filtered list
   const demoPos = useMemo(() => demoIndices.indexOf(demoIndex), [demoIndices, demoIndex]);
 
-  // ✅ When modal search is applied, ensure demoIndex is valid for the filtered demoIndices
+  // 1-based page number for UI
+  // 1-based page number for UI
+  const demoPage = demoPos >= 0 ? demoPos + 1 : 1;
+  const demoTotalCount = demoIndices.length;
+
+  // ✅ Open first filtered card
+  const openDemoFirst = useCallback(() => {
+    if (!demoIndices.length) {
+      alert("אין כרטיסים מתאימים לתצוגה (בדוק מסומנים ✓ / חיפוש תצוגה).");
+      return;
+    }
+    setDemoIndex(demoIndices[0]);
+    setDemoOpen(true);
+  }, [demoIndices]);
+
+  // ✅ If modal open and current index becomes invalid (filter changed) -> jump to first match
   useEffect(() => {
     if (!demoOpen) return;
-
-    // if no results - close? (I prefer keep open and user can change search)
     if (demoIndices.length === 0) return;
 
-    // if current card isn't in filtered list, jump to first match
     if (!demoIndices.includes(demoIndex)) {
       setDemoIndex(demoIndices[0]);
     }
   }, [demoOpen, demoIndices, demoIndex]);
-  // 1-based page number for UI
-  const demoPage = demoPos >= 0 ? demoPos + 1 : 1;
-
-  // total pages
-  const demoTotal = demoIndices.length;
 
   // jump to page (1-based)
-  function demoJump(page1) {
-    if (!demoIndices.length) return;
+  const demoJump = useCallback(
+    (page1) => {
+      if (!demoIndices.length) return;
 
-    let p = Math.floor(Number(page1));
-    if (!Number.isFinite(p)) return;
+      let p = Math.floor(Number(page1));
+      if (!Number.isFinite(p)) return;
 
-    // clamp to range
-    if (p < 1) p = 1;
-    if (p > demoIndices.length) p = demoIndices.length;
+      if (p < 1) p = 1;
+      if (p > demoIndices.length) p = demoIndices.length;
 
-    setDemoIndex(demoIndices[p - 1]);
-  }
+      setDemoIndex(demoIndices[p - 1]);
+    },
+    [demoIndices]
+  );
 
-  function openDemoAtRealIndex(realIndex) {
-    // if this row isn't inside the filtered navigation list, jump to first available
-    const pos = demoIndices.indexOf(realIndex);
-    if (pos === -1) {
-      if (demoIndices.length === 0) {
-        alert("אין כרטיסים מתאימים לתצוגה (בדוק חיפוש/מסומנים).");
-        return;
+  const openDemoAtRealIndex = useCallback(
+    (realIndex) => {
+      const pos = demoIndices.indexOf(realIndex);
+      if (pos === -1) {
+        if (demoIndices.length === 0) {
+          alert("אין כרטיסים מתאימים לתצוגה (בדוק חיפוש/מסומנים).");
+          return;
+        }
+        setDemoIndex(demoIndices[0]);
+      } else {
+        setDemoIndex(realIndex);
       }
-      setDemoIndex(demoIndices[0]);
-    } else {
-      setDemoIndex(realIndex);
-    }
-    setDemoOpen(true);
-  }
+      setDemoOpen(true);
+    },
+    [demoIndices]
+  );
 
-  function demoPrev() {
+  const demoPrev = useCallback(() => {
     if (!demoIndices.length) return;
     const pos = demoIndices.indexOf(demoIndex);
-    const nextPos = pos <= 0 ? demoIndices.length - 1 : pos - 1; // ✅ wrap
+    const nextPos = pos <= 0 ? demoIndices.length - 1 : pos - 1; // wrap
     setDemoIndex(demoIndices[nextPos]);
-  }
+  }, [demoIndices, demoIndex]);
 
-  function demoNext() {
+  const demoNext = useCallback(() => {
     if (!demoIndices.length) return;
     const pos = demoIndices.indexOf(demoIndex);
-    const nextPos = pos === -1 || pos >= demoIndices.length - 1 ? 0 : pos + 1; // ✅ wrap
+    const nextPos = pos === -1 || pos >= demoIndices.length - 1 ? 0 : pos + 1; // wrap
     setDemoIndex(demoIndices[nextPos]);
-  }
+  }, [demoIndices, demoIndex]);
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1619,7 +1619,7 @@ function AdminPanel({ token, onLogout }) {
   }
 
   return (
-    <div className="dilenCardsApp" dir={rtl ? "rtl" : "ltr"}>
+    <div className="dilenCardsApp" dir={RTL ? "rtl" : "ltr"}>
       <style>{`
         :root{ --bd:#d9d9d9; --bg:#ffffff; --warn:#b00020; --ok:#0b63ff; }
         .dilenCardsApp{
@@ -1654,6 +1654,17 @@ function AdminPanel({ token, onLogout }) {
         }
         .dilenBtn:disabled,.dilenBtnPrimary:disabled,.dilenBtnTiny:disabled,.dilenBtnDanger:disabled{
           opacity:0.6; cursor:not-allowed;
+        }
+          .dilenBtnLoadDB--pulse{
+          border: 2px solid #16a34a !important;
+         animation: dilenGreenBorderPulse 1.5s ease-in-out infinite;
+        }
+
+        /* Pulse effect without changing layout too much */
+        @keyframes dilenGreenBorderPulse{
+          0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.0); }
+          50%  { box-shadow: 0 0 0 4px rgba(22,163,74,0.25); }
+          100% { box-shadow: 0 0 0 0 rgba(22,163,74,0.0); }
         }
 
         .dilenInp,.dilenSel{
@@ -1757,6 +1768,30 @@ function AdminPanel({ token, onLogout }) {
           margin-inline-start:6px;
           vertical-align:middle;
         }
+.thIconWrap{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+
+.thIcon{
+  width:16px;
+  height:16px;
+  opacity:0.75;
+}
+
+.thIconNum{
+  font-size:11px;
+  font-weight:800;
+  opacity:0.65;
+}
+
+/* soften sort arrows */
+.sortMark{
+  font-size:11px;
+  opacity:0.45;
+  margin-inline-start:2px;
+}
 
         /* force light controls */
         .dilenCardsApp, .dilenCardsApp * { color-scheme: light !important; }
@@ -1768,23 +1803,40 @@ function AdminPanel({ token, onLogout }) {
 
       <div className="dilenTop">
         <div className="dilenBar">
-          <h1 className="dilenTitle">פאשה - ניהול כרטיסיות</h1>
+          <h1 className="dilenTitle">ניהול כרטיסי תצוגה</h1>
 
-          <button className="dilenBtn" onClick={loadFromDB} disabled={busy}>
-            העלה מסד נתונים
+          <button
+            className={`dilenBtn dilenBtnLoadDB ${
+              !dbLoaded && !busy ? "dilenBtnLoadDB--pulse" : ""
+            }`}
+            onClick={loadFromDB}
+            disabled={busy}
+            title="העלה מסד נתונים מהשרת"
+          >
+            העלה DB
           </button>
 
           <button className="dilenBtn" onClick={addNewRow} disabled={busy}>
             + כרטיס חדש
           </button>
 
-          <button className="dilenBtn" onClick={saveToDBAllChanges} disabled={busy}>
-            שמור מסד נתונים בשרת (עדכון/הוספה)
+          <button
+            className="dilenBtn"
+            onClick={saveToDBAllChanges}
+            disabled={busy}
+            title=" שמור מסד נתונים בשרת (עדכון/הוספה)"
+          >
+            שמור - DB
             {dirtyCount + newCount > 0 ? <span className="dirtyDot" /> : null}
           </button>
 
-          <button className="dilenBtn" onClick={downloadCSV} disabled={busy}>
-            יצוא לקובץ TXT - לדילן (רק מסומנים)
+          <button
+            className="dilenBtn"
+            onClick={downloadCSV}
+            disabled={busy}
+            title=" יצוא לקובץ TXT - לדילן (רק מסומנים)"
+          >
+            יצוא לדילן
           </button>
           <button
             className="layoutBtn"
@@ -1794,8 +1846,13 @@ function AdminPanel({ token, onLogout }) {
             יצא ל- 📊 Excel
           </button>
 
-          <button className="dilenBtn" onClick={() => fileRef.current?.click()} disabled={busy}>
-            יבוא נתונים מקובץ Excel/CSV/TXT
+          <button
+            className="dilenBtn"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            title="יבוא נתונים Excel/CSV/TXT"
+          >
+            יבוא מקובץ
           </button>
           <input
             ref={fileRef}
@@ -1804,10 +1861,6 @@ function AdminPanel({ token, onLogout }) {
             style={{ display: "none" }}
             onChange={(e) => handleFile(e.target.files?.[0])}
           />
-
-          <button className="dilenBtnPrimary" onClick={autoTranslateAll} disabled={busy}>
-            {busy ? "Working..." : "תרגום לאנגלית - אוטומטי להכל"}
-          </button>
 
           <button className="dilenBtn" onClick={checkDuplicates} disabled={busy}>
             בדוק כפילויות
@@ -1825,7 +1878,7 @@ function AdminPanel({ token, onLogout }) {
             }}
             title={frozenCount === 0 ? "אין כרטיסיות בהקפאה" : `יש ${frozenCount} כרטיסיות בהקפאה`}
           >
-            {showFrozenOnly ? "חזור לתצוגה רגילה" : `הראה כרטיסיות בהקפאה (${frozenCount})`}
+            {showFrozenOnly ? "חזור לתצוגה רגילה" : ` כרטיסיות בהקפאה (${frozenCount})`}
           </button>
 
           {dupOnly ? (
@@ -1883,84 +1936,66 @@ function AdminPanel({ token, onLogout }) {
               }}
               onChange={(e) => toggleCheckAll(e.target.checked)}
             />
-            {allChecked ? " בטל את בחירת כל הכרטיסים ✗" : "בחר את כל הכרטיסים לשמירה ✓"}
-          </label>
-
-          <label className="dilenToggle">
-            <input
-              type="checkbox"
-              checked={translateOnlyIfEmpty}
-              onChange={(e) => setTranslateOnlyIfEmpty(e.target.checked)}
-            />
-            תרגם לאנגלית רק אם אין תרגום קיים
-          </label>
-
-          <label className="dilenToggle" title="When loading from DB: uncheck all rows">
-            <input
-              type="checkbox"
-              checked={forceUncheckOnLoad}
-              onChange={(e) => setForceUncheckOnLoad(e.target.checked)}
-            />
-            לא לסמן בחירה בזמן העלאת הכרטיסים
-          </label>
-
-          <label className="dilenToggle" title="RTL/LTR">
-            <input type="checkbox" checked={rtl} onChange={(e) => setRtl(e.target.checked)} />
-            סדר עמודות מימין לשמאל
+            {allChecked ? " בטל בחירת כל הכרטיסים ✗" : "בחר הכל ✓"}
           </label>
 
           <div className="dilenToggle" style={{ borderStyle: "dashed", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
             <span className="dilenCode">{dirtyCount + newCount}</span>
 
-            <input
-              className="dilenInp"
-              style={{ width: 320, height: 34, fontSize: 14, borderRadius: 10 }}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="חפש..."
+            <ClearableInput
+              value={demoSearch}
+              onChange={setDemoSearch}
+              placeholder="חיפוש בתוך התצוגה..."
               disabled={busy}
+              style={{ width: 260 }}
+              onEnter={openDemoFirst}
             />
 
             {/* (your Step 5 controls stay here too if you added them) */}
           </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+              marginTop: 8,
+            }}
+          >
+            <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900 }}>
+              <input
+                type="checkbox"
+                checked={demoOnlyChecked}
+                onChange={(e) => setDemoOnlyChecked(e.target.checked)}
+                disabled={busy}
+              />
+              הצג רק מסומנים ✓
+            </label>
+
+            <ClearableInput
+              value={search}
+              onChange={setSearch}
+              placeholder="חפש..."
+              disabled={busy}
+              style={{ width: 320 }}
+            />
+
+            <span className="dilenCode" title="כמה כרטיסים יש בתצוגה">
+              {demoIndices.length}
+            </span>
+            {/* ✅ NEW: הצג button (opens modal) */}
+            <button
+              className="dilenBtn"
+              onClick={openDemoFirst}
+              disabled={busy}
+              title="פתח תצוגה (לפי מסומנים/חיפוש תצוגה)"
+              style={{ height: 34, borderRadius: 10 }}
+            >
+              {demoOnlyChecked ? `הצג (${demoCountChecked})` : `הצג (${demoCountAll})`}
+            </button>
+          </div>
         </div>
-      </div>
-      <div
-        style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}
-      >
-        <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900 }}>
-          <input
-            type="checkbox"
-            checked={demoOnlyChecked}
-            onChange={(e) => setDemoOnlyChecked(e.target.checked)}
-            disabled={busy}
-          />
-          תצוגה: רק מסומנים ✓
-        </label>
-
-        <input
-          className="dilenInp"
-          style={{ width: 260, height: 34, fontSize: 14, borderRadius: 10 }}
-          value={demoSearch}
-          onChange={(e) => setDemoSearch(e.target.value)}
-          placeholder="חיפוש בתוך התצוגה..."
-          disabled={busy}
-        />
-
-        <span className="dilenCode" title="כמה כרטיסים יש בתצוגה">
-          {demoIndices.length}
-        </span>
-        {/* ✅ NEW: הצג button (opens modal) */}
-        <button
-          className="dilenBtn"
-          onClick={openDemoFirst}
-          disabled={busy}
-          title="פתח תצוגה (לפי מסומנים/חיפוש תצוגה)"
-          style={{ height: 34, borderRadius: 10 }}
-        >
-          הצג
-        </button>
       </div>
 
       <div className="dilenTableWrap">
@@ -2041,25 +2076,28 @@ function AdminPanel({ token, onLogout }) {
                 />
                 <SortTh
                   className="col-aler"
-                  label="אלרגון 1"
                   col="alergonim_1"
                   onSort={toggleSort}
                   mark={sortMark}
+                  iconNumber={1}
                 />
+
                 <SortTh
                   className="col-aler"
-                  label="אלרגון 2"
                   col="alergonim_2"
                   onSort={toggleSort}
                   mark={sortMark}
+                  iconNumber={2}
                 />
+
                 <SortTh
                   className="col-aler"
-                  label="אלרגון 3"
                   col="alergonim_3"
                   onSort={toggleSort}
                   mark={sortMark}
+                  iconNumber={3}
                 />
+
                 <Th className="col-actions">פעולות</Th>
               </tr>
             </thead>
@@ -2431,10 +2469,6 @@ function AdminPanel({ token, onLogout }) {
           </div>
         </div>
       )}
-
-      <p style={{ marginTop: 10, opacity: 0.85 }}>
-        API: <span className="dilenCode">{DB_ENDPOINT}</span>
-      </p>
       <CardDemoModal
         open={demoOpen}
         row={demoIndex >= 0 ? rows[demoIndex] : null}
@@ -2443,7 +2477,7 @@ function AdminPanel({ token, onLogout }) {
         onPrev={demoPrev}
         onNext={demoNext}
         page={demoPage}
-        total={demoTotal}
+        total={demoTotalCount}
         onJump={demoJump}
         // ✅ NEW
         searchValue={demoSearch}
@@ -2456,17 +2490,69 @@ function AdminPanel({ token, onLogout }) {
 function Th({ children, className }) {
   return <th className={className}>{children}</th>;
 }
-
-function SortTh({ label, col, onSort, mark, className }) {
+function SortTh({ label, col, onSort, mark, className, iconNumber }) {
   return (
-    <th
-      className={`dilenSortTh ${className || ""}`}
-      onClick={() => onSort(col)}
-      title="Click to sort"
-    >
-      {label}
-      {mark(col)}
+    <th className={`dilenSortTh ${className || ""}`} onClick={() => onSort(col)} title="מיין">
+      {iconNumber ? (
+        <span className="thIconWrap">
+          <img src={withBase("ellergon.svg")} alt={`אלרגון ${iconNumber}`} className="thIcon" />
+          <span className="thIconNum">{iconNumber}</span>
+        </span>
+      ) : (
+        label
+      )}
+      <span className="sortMark">{mark(col)}</span>
     </th>
+  );
+}
+function ClearableInput({ value, onChange, placeholder, disabled, style, onEnter }) {
+  return (
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center", ...style }}>
+      <input
+        className="dilenInp"
+        dir="rtl"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onEnter?.();
+        }}
+        style={{
+          width: "100%",
+          height: 34,
+          fontSize: 14,
+          borderRadius: 10,
+          paddingLeft: 40, // space for X on left
+          textAlign: "right",
+        }}
+      />
+
+      {value ? (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          disabled={disabled}
+          title="נקה"
+          style={{
+            position: "absolute",
+            left: 8,
+            width: 24,
+            height: 24,
+            borderRadius: 999,
+            border: "1px solid #ddd",
+            background: "#fff",
+            cursor: "pointer",
+            fontWeight: 900,
+            display: "grid",
+            placeItems: "center",
+            lineHeight: 1,
+          }}
+        >
+          ✕
+        </button>
+      ) : null}
+    </div>
   );
 }
 

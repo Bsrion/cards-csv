@@ -1,0 +1,614 @@
+:root {
+  --neo-bg: rgba(6, 8, 14, 0.78);
+  --neo-panel: rgba(12, 16, 28, 0.72);
+  --neo-border: rgba(135, 160, 255, 0.18);
+  --neo-text: rgba(240, 246, 255, 0.92);
+  --neo-sub: rgba(240, 246, 255, 0.68);
+  --ring: 0 0 0 3px rgba(42, 246, 255, 0.14);
+}
+
+/* =========================
+   Overlay + Modal
+========================= */
+.dilenCardDemoOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: grid;
+  place-items: center;
+
+  background: radial-gradient(900px 600px at 18% 12%, rgba(42, 246, 255, 0.14), transparent 60%),
+    radial-gradient(900px 600px at 86% 72%, rgba(178, 107, 255, 0.12), transparent 62%),
+    linear-gradient(180deg, rgba(5, 7, 12, 0.86), rgba(3, 4, 8, 0.9));
+
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dilenCardDemoModal {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+
+  background: linear-gradient(180deg, rgba(14, 18, 30, 0.86), rgba(10, 12, 22, 0.74));
+  color: var(--neo-text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+}
+
+/* =========================
+   Desktop/Mobile visibility (HARD)
+   Fixes "mobile shows on desktop twice"
+========================= */
+.dilenCardDemoModal .mobileOnly {
+  display: none !important;
+}
+.desktopOnly {
+  display: flex !important;
+}
+
+#root > div > div.dilenCardDemoOverlay > div > main > aside {
+  display: block !important;
+}
+
+@media (max-width: 920px) {
+  .dilenCardDemoModal .desktopOnly {
+    display: none !important;
+  }
+  .dilenCardDemoModal .mobileOnly {
+    display: flex !important;
+  }
+}
+
+/* =========================
+   Top Bar
+========================= */
+.dilenTopBar {
+  border-bottom: 1px solid rgba(135, 160, 255, 0.12);
+  background: rgba(10, 12, 22, 0.2);
+  padding: 8px 10px;
+}
+
+/* Desktop top layout */
+.topDesktop {
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.topDesktopLeft,
+.topDesktopRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.titlePill {
+  max-width: 360px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(135, 160, 255, 0.14);
+  background: rgba(5, 7, 12, 0.16);
+  color: var(--neo-sub);
+  font-weight: 900;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill,
+.pillBtn {
+  height: 25px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(135, 160, 255, 0.14);
+  background: rgba(5, 7, 12, 0.16);
+  color: var(--neo-sub);
+  font-weight: 900;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.pillBtn {
+  cursor: pointer;
+  user-select: none;
+}
+
+.pillBtn:hover {
+  filter: brightness(1.06);
+}
+.pillBtn:active {
+  transform: translateY(1px);
+}
+.pillBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pillBtn.isActive {
+  color: var(--neo-text);
+  border-color: rgba(42, 246, 255, 0.28);
+  box-shadow: var(--ring);
+}
+
+.iconPill {
+  width: 34px;
+  height: 25px;
+  border-radius: 999px;
+  border: 1px solid rgba(135, 160, 255, 0.14);
+  background: rgba(5, 7, 12, 0.16);
+  color: var(--neo-text);
+  font-weight: 950;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0 !important;
+}
+.iconPill:hover {
+  filter: brightness(1.06);
+}
+.iconPill.danger {
+  border-color: rgba(255, 120, 120, 0.24);
+}
+
+.zoomGroup {
+  display: inline-flex;
+  gap: 6px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(135, 160, 255, 0.14);
+  background: rgba(5, 7, 12, 0.12);
+}
+
+/* Nav pill */
+.navPill {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(135, 160, 255, 0.14);
+  background: rgba(5, 7, 12, 0.16);
+  color: var(--neo-sub);
+  overflow: hidden;
+}
+.navPillBtn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  height: 30px;
+  padding: 0 10px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.navPillBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.navPillSep {
+  opacity: 0.35;
+  padding: 0 6px;
+  font-weight: 900;
+}
+
+/* Search (shared) */
+.modalSearchInputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.modalSearchInp {
+  width: clamp(150px, 20vw, 300px);
+  height: 25px;
+  border-radius: 999px;
+
+  border: 1px solid rgba(42, 246, 255, 0.16);
+  background: rgba(5, 7, 12, 0.18);
+  color: var(--neo-text);
+
+  padding: 0 12px 0 40px; /* X on left */
+  outline: none;
+
+  font-weight: 900;
+  text-align: right;
+  direction: rtl;
+  font-size: 12px;
+}
+.modalSearchInp:focus {
+  box-shadow: var(--ring);
+  border-color: rgba(42, 246, 255, 0.26);
+}
+.modalSearchClear {
+  position: absolute;
+  left: 7px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(135, 160, 255, 0.16);
+  background: rgba(10, 12, 22, 0.24);
+  color: var(--neo-text);
+  cursor: pointer;
+  font-weight: 950;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+/* =========================
+   Mobile top layout
+========================= */
+.topMobile {
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topMobileRow1 {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobileTitle {
+  min-width: 0;
+  font-weight: 900;
+  font-size: 12px;
+  color: var(--neo-text);
+  opacity: 0.95;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topMobileRow2 {
+  display: flex;
+  align-items: center;
+  justify-content: stretch;
+}
+
+.mobileSearchWrap {
+  width: 100%;
+}
+@media (max-width: 920px) {
+  .modalSearchInp {
+    width: 100%;
+  }
+}
+
+/* =========================
+   Body layout
+========================= */
+.dilenCardDemoBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+
+  display: grid;
+  grid-template-columns: 0px 1fr;
+  gap: 12px;
+  padding: 12px;
+  transition: grid-template-columns 240ms ease;
+}
+
+.dilenCardDemoBody.panelOpen {
+  grid-template-columns: 360px 1fr;
+}
+
+@media (max-width: 920px) {
+  .dilenCardDemoBody {
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    overflow-y: auto; /* scroll Y only if needed */
+  }
+}
+
+/* =========================
+   Controls panel (desktop only)
+========================= */
+.dilenCardDemoControls {
+  border-radius: 16px;
+  padding: 10px;
+  border: 1px solid rgba(42, 246, 255, 0.1);
+  background: rgba(10, 12, 22, 0.22);
+  overflow: auto;
+  max-height: calc(100vh - 120px);
+
+  opacity: 0;
+  transform: translateX(-10px);
+  pointer-events: none;
+  transition: transform 240ms ease, opacity 240ms ease;
+}
+
+.dilenCardDemoControls.show {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.ctrlTitle {
+  font-weight: 950;
+  font-size: 12px;
+  color: var(--neo-text);
+}
+.ctrlSubTitle {
+  font-weight: 950;
+  font-size: 11px;
+  margin-top: 8px;
+  color: var(--neo-sub);
+}
+.ctrlDivider {
+  height: 1px;
+  background: rgba(135, 160, 255, 0.1);
+  margin: 10px 0;
+}
+
+.ctrlRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  margin-top: 10px;
+  color: var(--neo-sub);
+}
+
+.ctrlGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ctrlBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 950;
+  color: var(--neo-sub);
+}
+
+.ctrlInp,
+.ctrlSel {
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(135, 160, 255, 0.14);
+  background: rgba(5, 7, 12, 0.16);
+  color: var(--neo-text);
+  padding: 0 10px;
+  outline: none;
+  font-size: 12px;
+}
+.ctrlInp:focus,
+.ctrlSel:focus {
+  box-shadow: var(--ring);
+  border-color: rgba(42, 246, 255, 0.2);
+}
+
+.ctrlBtn {
+  margin-top: 10px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(135, 160, 255, 0.14);
+  background: rgba(5, 7, 12, 0.12);
+  color: var(--neo-text);
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.ctrlHint {
+  font-size: 11px;
+  opacity: 0.88;
+  line-height: 1.35;
+  margin-top: 10px;
+  color: var(--neo-sub);
+}
+
+/* =========================
+   Stage + Card
+========================= */
+.dilenCardDemoStage {
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
+  align-items: center;
+  gap: 10px;
+
+  /* allow vertical scroll but keep horizontal swipe gesture working */
+  touch-action: pan-y;
+}
+
+.printWrap {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.cardScaler {
+  transform-origin: center center;
+  display: inline-block;
+  will-change: transform;
+}
+
+/* Protect against global @media screen { .printArea{display:none} } */
+.dilenCardDemoModal .printArea {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.dilenCardDemoCard {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 18px;
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+  direction: rtl;
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.16);
+}
+
+.cardBgImg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.cardField,
+.cardFieldImg,
+.priceGroup {
+  z-index: 5;
+}
+
+.cardField {
+  position: absolute;
+  cursor: grab;
+  user-select: none;
+  padding: 2px 6px;
+  border-radius: 10px;
+  line-height: 1.15;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nowrapLine {
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardFieldImg {
+  position: absolute;
+  cursor: grab;
+  user-select: none;
+  border-radius: 10px;
+  object-fit: contain;
+  pointer-events: auto;
+}
+
+.cardFieldSel {
+  outline: none !important;
+  background: rgba(42, 246, 255, 0.09);
+  box-shadow: 0 0 0 2px rgba(42, 246, 255, 0.22), 0 18px 45px rgba(42, 246, 255, 0.1);
+}
+
+.noSelectUI .cardFieldSel {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.priceGroup {
+  position: absolute;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: center;
+  direction: rtl;
+  z-index: 20;
+  cursor: grab;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.pricePart {
+  user-select: none;
+  cursor: grab;
+  white-space: nowrap;
+  background: transparent;
+}
+
+.dilenCardDemoHint {
+  font-size: 10px;
+  opacity: 0.72;
+  text-align: center;
+  color: var(--neo-sub);
+}
+
+/* =========================
+   Print
+========================= */
+@media print {
+  @page {
+    size: 10cm 15cm;
+    margin: 0;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 10cm !important;
+    height: 15cm !important;
+    overflow: hidden !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .printWrap,
+  .printWrap * {
+    visibility: visible !important;
+  }
+
+  .printWrap {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 10cm !important;
+    height: 15cm !important;
+    display: block !important;
+    background: transparent !important;
+  }
+
+  .cardScaler {
+    transform: none !important;
+  }
+
+  .printArea {
+    width: 10cm !important;
+    height: 15cm !important;
+    margin: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .cardFieldSel {
+    outline: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .dilenTopBar,
+  .dilenCardDemoControls,
+  .dilenCardDemoHint {
+    display: none !important;
+  }
+}
