@@ -15,7 +15,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import CardDemoModal from "./components/CardDemoModal.jsx";
-import "./App.css/";
+import "./App.css";
 
 /**
  * ✅ API base
@@ -456,6 +456,10 @@ function Login({ onSuccess }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "login", username: user, password: pass }),
       });
+      // ✅ close mobile keyboard + prevent “zoom” sticking
+      document.activeElement?.blur?.();
+      requestAnimationFrame(() => document.activeElement?.blur?.()); // optional extra safety
+
       onSuccess(data.token);
     } catch (e) {
       setErr(e?.message || String(e));
@@ -1571,200 +1575,291 @@ function AdminPanel({ token, onLogout }) {
   return (
     <div className="dilenCardsApp" dir={RTL ? "rtl" : "ltr"}>
       <div className="dilenTop">
-        <div className="dilenBar">
-          <h1 className="dilenTitle">ניהול כרטיסי תצוגה</h1>
+        {/* ===== DESKTOP: keep your current header exactly as-is ===== */}
+        <div className="dilenOnlyDesktop">
+          <div className="dilenBar">
+            <h1 className="dilenTitle">ניהול כרטיסי תצוגה</h1>
 
-          <button
-            className={`dilenBtn dilenBtnLoadDB ${
-              !dbLoaded && !busy ? "dilenBtnLoadDB--pulse" : ""
-            }`}
-            onClick={loadFromDB}
-            disabled={busy}
-            title="העלה מסד נתונים מהשרת"
-          >
-            העלה DB
-          </button>
+            <button
+              className={`dilenBtn dilenBtnLoadDB ${
+                !dbLoaded && !busy ? "dilenBtnLoadDB--pulse" : ""
+              }`}
+              onClick={loadFromDB}
+              disabled={busy}
+              title="העלה מסד נתונים מהשרת"
+            >
+              העלה DB
+            </button>
 
-          <button className="dilenBtn" onClick={addNewRow} disabled={busy}>
-            + כרטיס חדש
-          </button>
+            <button className="dilenBtn" onClick={addNewRow} disabled={busy}>
+              + כרטיס חדש
+            </button>
 
-          <button
-            className="dilenBtn"
-            onClick={saveToDBAllChanges}
-            disabled={busy}
-            title=" שמור מסד נתונים בשרת (עדכון/הוספה)"
-          >
-            שמור - DB
-            {dirtyCount + newCount > 0 ? <span className="dirtyDot" /> : null}
-          </button>
-
-          <button
-            className="dilenBtn"
-            onClick={downloadCSV}
-            disabled={busy}
-            title=" יצוא לקובץ TXT - לדילן (רק מסומנים)"
-          >
-            יצוא לדילן
-          </button>
-          <button
-            className="layoutBtn"
-            type="button"
-            onClick={() => exportExcel(rows, "cards-all.xlsx")} // single card
-          >
-            יצא ל- 📊 Excel
-          </button>
-
-          <button
-            className="dilenBtn"
-            onClick={() => fileRef.current?.click()}
-            disabled={busy}
-            title="יבוא נתונים Excel/CSV/TXT"
-          >
-            יבוא מקובץ
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,.txt,.xlsx,.xls"
-            style={{ display: "none" }}
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-
-          <button className="dilenBtn" onClick={checkDuplicates} disabled={busy}>
-            בדוק כפילויות
-          </button>
-          <button
-            className="dilenBtn"
-            disabled={busy || frozenCount === 0}
-            onClick={() => {
-              const next = !showFrozenOnly;
-              const msg = next
-                ? `לעבור לתצוגת הקפאה?\n\nיוצגו ${frozenCount} כרטיסיות בהקפאה בלבד.\nכרטיסיות רגילות יוסתרו.`
-                : "לחזור לתצוגה רגילה?\n\nיוסתרו כרטיסיות בהקפאה ויוצגו הכרטיסיות הרגילות.";
-              if (!window.confirm(msg)) return;
-              setShowFrozenOnly(next);
-            }}
-            title={frozenCount === 0 ? "אין כרטיסיות בהקפאה" : `יש ${frozenCount} כרטיסיות בהקפאה`}
-          >
-            {showFrozenOnly ? "חזור לתצוגה רגילה" : ` כרטיסיות בהקפאה (${frozenCount})`}
-          </button>
-
-          {dupOnly ? (
             <button
               className="dilenBtn"
-              onClick={() => {
-                setDupOnly(false);
-                setDupClientIds([]);
-              }}
+              onClick={saveToDBAllChanges}
               disabled={busy}
-              title="חזרה לתצוגה מלאה"
+              title=" שמור מסד נתונים בשרת (עדכון/הוספה)"
             >
-              בטל כפילויות
+              שמור - DB
+              {dirtyCount + newCount > 0 ? <span className="dirtyDot" /> : null}
             </button>
-          ) : null}
 
-          <button className="dilenBtn" onClick={backupCreate} disabled={busy}>
-            גבה עכשיו
-          </button>
+            <button
+              className="dilenBtn"
+              onClick={downloadCSV}
+              disabled={busy}
+              title=" יצוא לקובץ TXT - לדילן (רק מסומנים)"
+            >
+              יצוא לדילן
+            </button>
 
-          <button className="dilenBtn" onClick={backupList} disabled={busy}>
-            שחזר...
-          </button>
+            {/* Export Excel */}
+            <button
+              className="layoutBtn"
+              type="button"
+              onClick={() => exportExcel(rows, "cards-all.xlsx")}
+            >
+              יצא ל- 📊 Excel
+            </button>
 
-          <button
-            className="dilenBtnDanger"
-            onClick={deleteAllDB}
-            disabled={busy}
-            title="מחיקה מלאה"
-          >
-            ⚠️ מחק מסד נתונים
-          </button>
+            <button
+              className="dilenBtn"
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+              title="יבוא נתונים Excel/CSV/TXT"
+            >
+              יבוא מקובץ
+            </button>
 
-          <button className="dilenBtn" onClick={onLogout} disabled={busy}>
-            Logout
-          </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,.txt,.xlsx,.xls"
+              style={{ display: "none" }}
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+
+            <button className="dilenBtn" onClick={checkDuplicates} disabled={busy}>
+              בדוק כפילויות
+            </button>
+
+            <button
+              className="dilenBtn"
+              disabled={busy || frozenCount === 0}
+              onClick={() => {
+                const next = !showFrozenOnly;
+                const msg = next
+                  ? `לעבור לתצוגת הקפאה?\n\nיוצגו ${frozenCount} כרטיסיות בהקפאה בלבד.\nכרטיסיות רגילות יוסתרו.`
+                  : "לחזור לתצוגה רגילה?\n\nיוסתרו כרטיסיות בהקפאה ויוצגו הכרטיסיות הרגילות.";
+                if (!window.confirm(msg)) return;
+                setShowFrozenOnly(next);
+              }}
+              title={
+                frozenCount === 0 ? "אין כרטיסיות בהקפאה" : `יש ${frozenCount} כרטיסיות בהקפאה`
+              }
+            >
+              {showFrozenOnly ? "חזור לתצוגה רגילה" : ` כרטיסיות בהקפאה (${frozenCount})`}
+            </button>
+
+            {dupOnly ? (
+              <button
+                className="dilenBtn"
+                onClick={() => {
+                  setDupOnly(false);
+                  setDupClientIds([]);
+                }}
+                disabled={busy}
+                title="חזרה לתצוגה מלאה"
+              >
+                בטל כפילויות
+              </button>
+            ) : null}
+
+            <button className="dilenBtn" onClick={backupCreate} disabled={busy}>
+              גבה עכשיו
+            </button>
+
+            <button className="dilenBtn" onClick={backupList} disabled={busy}>
+              שחזר...
+            </button>
+
+            <button
+              className="dilenBtnDanger"
+              onClick={deleteAllDB}
+              disabled={busy}
+              title="מחיקה מלאה"
+            >
+              ⚠️ מחק מסד נתונים
+            </button>
+
+            <button className="dilenBtn" onClick={onLogout} disabled={busy}>
+              Logout
+            </button>
+          </div>
+
+          <div className="dilenToggles">
+            <div className="dilenMobile3Rows">
+              {/* ROW 1 */}
+              <div className="dilenMobileRow1">
+                <label
+                  className="dilenToggle dilenMobileToggleCompact"
+                  title={
+                    allChecked
+                      ? "כל השורות מסומנות"
+                      : mixedChecked
+                      ? "חלק מסומנות"
+                      : "אף שורה לא מסומנת"
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = mixedChecked;
+                    }}
+                    onChange={(e) => toggleCheckAll(e.target.checked)}
+                  />
+                  {allChecked ? "בטל הכל ✗" : "בחר הכל ✓"}
+                </label>
+
+                <label className="dilenToggle dilenMobileToggleCompact">
+                  <input
+                    type="checkbox"
+                    checked={demoOnlyChecked}
+                    onChange={(e) => setDemoOnlyChecked(e.target.checked)}
+                    disabled={busy}
+                  />
+                  מסומנים בלבד ✓
+                </label>
+
+                <div className="dilenToggle dilenMobileUnsaved">
+                  <span className="dilenMobileUnsavedLabel">שינויים:</span>
+                  <span className="dilenCode">{dirtyCount + newCount}</span>
+                </div>
+              </div>
+
+              {/* ROW 2 */}
+              <div className="dilenMobileRow2">
+                <div className="dilenMobileSearchWrap">
+                  <ClearableInput
+                    value={search}
+                    onChange={setSearch}
+                    placeholder="חפש בטבלה..."
+                    disabled={busy}
+                  />
+                </div>
+
+                <button
+                  className="dilenBtn dilenMobileShowAccent"
+                  onClick={openDemoFirst}
+                  disabled={busy}
+                  title="פתח תצוגה (לפי מסומנים/חיפוש תצוגה)"
+                >
+                  {demoOnlyChecked ? `הצג (${demoCountChecked})` : `הצג (${demoCountAll})`}
+                </button>
+              </div>
+
+              {/* ROW 3 */}
+              <div className="dilenMobileRow3">
+                <ClearableInput
+                  value={demoSearch}
+                  onChange={setDemoSearch}
+                  placeholder="חיפוש בתוך התצוגה..."
+                  disabled={busy}
+                  onEnter={openDemoFirst}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="dilenToggles">
-          <label
-            className="dilenToggle"
-            title={
-              allChecked
-                ? "כל השורות מסומנות לשמירה"
-                : mixedChecked
-                ? "חלק מסומנות"
-                : "אף שורה לא מסומנת"
-            }
-          >
-            <input
-              type="checkbox"
-              checked={allChecked}
-              ref={(el) => {
-                if (el) el.indeterminate = mixedChecked;
-              }}
-              onChange={(e) => toggleCheckAll(e.target.checked)}
-            />
-            {allChecked ? " בטל בחירת כל הכרטיסים ✗" : "בחר הכל ✓"}
-          </label>
+        {/* ===== MOBILE: new short header ===== */}
+        <div className="dilenOnlyMobile">
+          <div className="dilenBar dilenBarMobileGrid">
+            <h1 className="dilenTitle">ניהול כרטיסי תצוגה</h1>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-              flexWrap: "wrap",
-              marginTop: 8,
-            }}
-          >
-            <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 900 }}>
+            <button
+              className={`dilenBtn dilenBtnLoadDB ${
+                !dbLoaded && !busy ? "dilenBtnLoadDB--pulse" : ""
+              }`}
+              onClick={loadFromDB}
+              disabled={busy}
+            >
+              העלה DB
+            </button>
+
+            <button className="dilenBtn" onClick={saveToDBAllChanges} disabled={busy}>
+              שמור - DB
+              {dirtyCount + newCount > 0 ? <span className="dirtyDot" /> : null}
+            </button>
+
+            <button className="dilenBtn" onClick={downloadCSV} disabled={busy}>
+              יצוא לדילן
+            </button>
+
+            <button className="dilenBtn" onClick={onLogout} disabled={busy}>
+              Logout
+            </button>
+          </div>
+
+          <div className="dilenToggles">
+            <label
+              className="dilenToggle"
+              style={{ width: "100%", justifyContent: "center" }}
+              title={
+                allChecked
+                  ? "כל השורות מסומנות"
+                  : mixedChecked
+                  ? "חלק מסומנות"
+                  : "אף שורה לא מסומנת"
+              }
+            >
               <input
                 type="checkbox"
-                checked={demoOnlyChecked}
-                onChange={(e) => setDemoOnlyChecked(e.target.checked)}
-                disabled={busy}
+                checked={allChecked}
+                ref={(el) => {
+                  if (el) el.indeterminate = mixedChecked;
+                }}
+                onChange={(e) => toggleCheckAll(e.target.checked)}
               />
-              הצג רק מסומנים ✓
+              {allChecked ? " בטל בחירת כל הכרטיסים ✗" : "בחר הכל ✓"}
             </label>
 
-            <ClearableInput
-              value={search}
-              onChange={setSearch}
-              placeholder="חפש בטבלה..."
-              disabled={busy}
-              style={{ width: 320 }}
-            />
-            <div
-              className="dilenToggle"
-              style={{ borderStyle: "dashed", gap: 10, flexWrap: "wrap" }}
-            >
-              <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
-              <span className="dilenCode">{dirtyCount + newCount}</span>
+            <div className="dilenMobileTogglesGrid">
+              <label className="dilenToggle" style={{ justifyContent: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={demoOnlyChecked}
+                  onChange={(e) => setDemoOnlyChecked(e.target.checked)}
+                  disabled={busy}
+                />
+                הצג רק מסומנים ✓
+              </label>
 
-              {/* (your Step 5 controls stay here too if you added them) */}
+              <div className="dilenToggle" style={{ justifyContent: "center", gap: 10 }}>
+                <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
+                <span className="dilenCode">{dirtyCount + newCount}</span>
+              </div>
+
+              <div className="dilenMobileFullRow">
+                <ClearableInput
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="חפש בטבלה..."
+                  disabled={busy}
+                />
+              </div>
+
+              <button
+                className="dilenBtn dilenMobileShowBig dilenMobileFullRow"
+                onClick={openDemoFirst}
+                disabled={busy}
+                title="פתח תצוגה (לפי מסומנים)"
+              >
+                {demoOnlyChecked ? `הצג (${demoCountChecked})` : `הצג (${demoCountAll})`}
+              </button>
             </div>
-            <ClearableInput
-              value={demoSearch}
-              onChange={setDemoSearch}
-              placeholder="חיפוש בתוך התצוגה..."
-              disabled={busy}
-              style={{ width: 260 }}
-              onEnter={openDemoFirst}
-            />
-
-            <span className="dilenCode" title="כמה כרטיסים יש בתצוגה">
-              {demoIndices.length}
-            </span>
-            {/* ✅ NEW: הצג button (opens modal) */}
-            <button
-              className="dilenBtn"
-              onClick={openDemoFirst}
-              disabled={busy}
-              title="פתח תצוגה (לפי מסומנים/חיפוש תצוגה)"
-              style={{ height: 34, borderRadius: 10 }}
-            >
-              {demoOnlyChecked ? `הצג (${demoCountChecked})` : `הצג (${demoCountAll})`}
-            </button>
           </div>
         </div>
       </div>
@@ -1852,7 +1947,6 @@ function AdminPanel({ token, onLogout }) {
                   mark={sortMark}
                   iconNumber={1}
                 />
-
                 <SortTh
                   className="col-aler"
                   col="alergonim_2"
@@ -1860,7 +1954,6 @@ function AdminPanel({ token, onLogout }) {
                   mark={sortMark}
                   iconNumber={2}
                 />
-
                 <SortTh
                   className="col-aler"
                   col="alergonim_3"
@@ -1868,7 +1961,6 @@ function AdminPanel({ token, onLogout }) {
                   mark={sortMark}
                   iconNumber={3}
                 />
-
                 <Th className="col-actions">פעולות</Th>
               </tr>
             </thead>
@@ -2074,6 +2166,7 @@ function AdminPanel({ token, onLogout }) {
                               ) : null}
                               הוסף שורה
                             </button>
+
                             <button
                               className="dilenBtnTiny"
                               onClick={() => clearNewRow(r.client_id)}
@@ -2083,6 +2176,7 @@ function AdminPanel({ token, onLogout }) {
                             </button>
                           </>
                         ) : null}
+
                         <button
                           className="dilenBtnTiny"
                           onClick={() => openDemoAtRealIndex(realIndex)}
@@ -2102,6 +2196,7 @@ function AdminPanel({ token, onLogout }) {
                             עדכן
                           </button>
                         ) : null}
+
                         {!r.is_new && r.id && !showFrozenOnly && !r.is_frozen ? (
                           <button
                             className="dilenBtnTiny"
@@ -2240,6 +2335,7 @@ function AdminPanel({ token, onLogout }) {
           </div>
         </div>
       )}
+
       <CardDemoModal
         open={demoOpen}
         row={demoIndex >= 0 ? rows[demoIndex] : null}
@@ -2250,7 +2346,6 @@ function AdminPanel({ token, onLogout }) {
         page={demoPage}
         total={demoTotalCount}
         onJump={demoJump}
-        // ✅ NEW
         searchValue={demoSearch}
         onSearch={(text) => setDemoSearch(text)}
       />

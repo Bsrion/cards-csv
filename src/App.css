@@ -428,3 +428,74 @@ table.dilenTable {
 .dilenCardsApp ::placeholder {
   color: rgba(0, 0, 0, 0.45) !important;
 }
+
+/* ===== Desktop/Mobile switch (like CardDemoModal) ===== */
+.dilenOnlyMobile {
+  display: none;
+}
+.dilenOnlyDesktop {
+  display: block;
+}
+
+@media (max-width: 920px) {
+  .dilenOnlyMobile {
+    display: block;
+  }
+  .dilenOnlyDesktop {
+    display: none;
+  }
+}
+
+/* ===== Mobile header layout ===== */
+@media (max-width: 920px) {
+  .dilenBarMobileGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .dilenBarMobileGrid .dilenTitle {
+    grid-column: 1 / -1;
+    text-align: center;
+    font-size: 18px;
+  }
+
+  .dilenBarMobileGrid .dilenBtn {
+    width: 100%;
+    height: 44px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 900;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dilenMobileTogglesGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .dilenMobileFullRow {
+    grid-column: 1 / -1;
+  }
+
+  .dilenMobileShowBig {
+    width: 100%;
+    height: 54px !important;
+    border-radius: 14px !important;
+    font-size: 18px !important;
+    font-weight: 900;
+  }
+
+  /* bigger input only in header area */
+  .dilenMobileTogglesGrid .dilenInp {
+    height: 42px;
+    font-size: 16px; /* iOS no-zoom */
+    border-radius: 12px;
+  }
+}
