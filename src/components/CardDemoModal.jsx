@@ -30,14 +30,14 @@ const ALERGEN_ICON_URLS = {
 
 // ----- defaults (cm) -----
 const DEFAULT_LAYOUT_CM = {
-  line_1: { x: 0.8, y: 3.5, w: 9, size: 40, weight: 800, align: "center" },
-  line_2: { x: 0.8, y: 4.6, w: 9, size: 40, weight: 800, align: "center" },
-  line_3: { x: 0.8, y: 5.6, w: 9, size: 40, weight: 800, align: "center" },
-  english: { x: 0.8, y: 9.0, w: 9, size: 14, weight: 600, align: "center" },
+  line_1: { x: 0.55, y: 3.5, w: 9, size: 40, weight: 800, align: "center" },
+  line_2: { x: 0.55, y: 4.6, w: 9, size: 40, weight: 800, align: "center" },
+  line_3: { x: 0.55, y: 5.6, w: 9, size: 40, weight: 800, align: "center" },
+  english: { x: 0.55, y: 9.0, w: 9, size: 14, weight: 600, align: "center" },
 
-  opt1: { x: 0.8, y: 10.9, w: 9, size: 15, weight: 700, align: "center" },
-  opt2: { x: 0.8, y: 11.5, w: 9, size: 15, weight: 700, align: "center" },
-  opt3: { x: 0.8, y: 12.1, w: 9, size: 15, weight: 700, align: "center" },
+  opt1: { x: 0.55, y: 10.9, w: 9, size: 15, weight: 700, align: "center" },
+  opt2: { x: 0.55, y: 11.5, w: 9, size: 15, weight: 700, align: "center" },
+  opt3: { x: 0.55, y: 12.1, w: 9, size: 15, weight: 700, align: "center" },
 
   a1: { x: 8.7, y: 10.7, w: 1.0, h: 1.0 },
   a2: { x: 8.7, y: 11.3, w: 1.0, h: 1.0 },
@@ -793,11 +793,7 @@ export default function CardDemoModal(props) {
                 </button>
               </div>
 
-              <span className="pill">Esc</span>
-
-              <button className="pillBtn" type="button" onClick={handlePrint} title="הדפסה ב-100%">
-                🖨️ Print
-              </button>
+              <span className="pill">⬩</span>
 
               <button
                 className={`pillBtn ${panelOpen ? "isActive" : ""}`}
@@ -832,6 +828,7 @@ export default function CardDemoModal(props) {
               >
                 ↷
               </button>
+              <span className="pill">⬩</span>
 
               <div className="zoomGroup" title="Zoom">
                 <button className="pillBtn" type="button" onClick={zoomOut}>
@@ -858,6 +855,7 @@ export default function CardDemoModal(props) {
                   1:1
                 </button>
               </div>
+              <span className="pill">⬩</span>
 
               <div className="modalSearchWrap" title="חיפוש">
                 <div className="modalSearchInputWrap">
@@ -892,10 +890,16 @@ export default function CardDemoModal(props) {
               <span className="titlePill" title={titleRow}>
                 {titleRow}
               </span>
+              <span className="pill">⬩</span>
 
               <button className="iconPill" type="button" onClick={handleDownloadPdf} title="PDF">
                 ⬇️
               </button>
+
+              <button className="pillBtn" type="button" onClick={handlePrint} title="הדפסה ב-100%">
+                🖨️ Print
+              </button>
+              <span className="pill">⬩</span>
 
               <button className="iconPill danger" type="button" onClick={onClose} title="סגור">
                 ✕
