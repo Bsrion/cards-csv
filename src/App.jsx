@@ -1684,7 +1684,6 @@ function AdminPanel({ token, onLogout }) {
                   <span className="dilenCode">{dirtyCount + newCount}</span>
                 </div>
                 <div>
-                  <span className="">&nbsp;&nbsp;&nbsp;</span>
                 </div>
                 <label className="dilenToggle dilenMobileToggleCompact">
                   <input
