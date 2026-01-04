@@ -32,7 +32,7 @@ const ALERGEN_ICON_URLS = {
 const DEFAULT_LAYOUT_CM = {
   line_1: { x: 0.55, y: 3.5, w: 9, size: 40, weight: 800, align: "center" },
   line_2: { x: 0.55, y: 4.6, w: 9, size: 40, weight: 800, align: "center" },
-  line_3: { x: 0.55, y: 5.6, w: 9, size: 40, weight: 800, align: "center" },
+  line_3: { x: 0.55, y: 5.7, w: 9, size: 40, weight: 800, align: "center" },
   english: { x: 0.55, y: 9.0, w: 9, size: 14, weight: 600, align: "center" },
 
   opt1: { x: 0.55, y: 10.9, w: 9, size: 15, weight: 700, align: "center" },
