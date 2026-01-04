@@ -241,6 +241,25 @@
   place-items: center;
   font-size: 12px;
 }
+.navPill.navPillMobile {
+  display: flex;
+  border: none;
+  width: 100%;
+  justify-content: space-between;
+  padding: 0 65px;
+  position: fixed;
+  left: 0;
+  bottom: 20px;
+}
+.navPill.navPillMobile button {
+  height: 25px;
+}
+.navPill.navPillMobile button:nth-child(1) {
+  border-radius: 0 15px 15px 0;
+}
+.navPill.navPillMobile button:nth-child(3) {
+  border-radius: 15px 0 0 15px;
+}
 
 /* =========================
    Mobile top layout
@@ -633,4 +652,10 @@
   .dilenCardDemoHint {
     display: none !important;
   }
+}
+.dilenMobileRow1 {
+  display: flex !important;
+}
+.dilenMobileRow2 {
+  display: flex !important;
 }

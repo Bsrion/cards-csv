@@ -735,6 +735,15 @@ export default function CardDemoModal(props) {
         <header className="dilenTopBar" dir="rtl">
           {/* MOBILE: ONLY title + search + PDF + close */}
           <div className="topMobile mobileOnly">
+            <div className="navPill navPillMobile" title="ניווט (← / →)">
+              <button type="button" className="navPillBtn" onClick={onPrev} aria-label="קודם">
+                →
+              </button>
+              <span className="navPillSep">/</span>
+              <button type="button" className="navPillBtn" onClick={onNext} aria-label="הבא">
+                ←
+              </button>
+            </div>
             <div className="topMobileRow1">
               <button className="iconPill danger" type="button" onClick={onClose} title="סגור">
                 ✕

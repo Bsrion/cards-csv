@@ -16,6 +16,7 @@ import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import CardDemoModal from "./components/CardDemoModal.jsx";
 import "./App.css";
+import Login from "./components/Login.jsx";
 
 /**
  * ✅ API base
@@ -439,61 +440,7 @@ function normalizeImportedRow(raw) {
 }
 
 /* =========================
-   ✅ Login (center)
-   ========================= */
-function Login({ onSuccess }) {
-  const [user, setUser] = useState("1234");
-  const [pass, setPass] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-
-  async function doLogin() {
-    setBusy(true);
-    setErr("");
-    try {
-      const data = await fetchJson(DB_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "login", username: user, password: pass }),
-      });
-      // ✅ close mobile keyboard + prevent “zoom” sticking
-      document.activeElement?.blur?.();
-      requestAnimationFrame(() => document.activeElement?.blur?.()); // optional extra safety
-
-      onSuccess(data.token);
-    } catch (e) {
-      setErr(e?.message || String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="loginScreen">
-      <div className="loginCard">
-        <h2>Admin Login</h2>
-
-        <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="username" />
-
-        <input
-          value={pass}
-          onChange={(e) => setPass(e.target.value)}
-          placeholder="password"
-          type="password"
-        />
-
-        <button onClick={doLogin} disabled={busy}>
-          {busy ? "..." : "Login"}
-        </button>
-
-        {err && <div className="loginErr">{err}</div>}
-      </div>
-    </div>
-  );
-}
-
-/* =========================
-   ✅ App wrapper
+   ✅ App wrapper - LogIn
    ========================= */
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem("cards_admin_token") || "");
@@ -501,6 +448,8 @@ export default function App() {
   if (!token) {
     return (
       <Login
+        fetchJson={fetchJson}
+        dbEndpoint={DB_ENDPOINT}
         onSuccess={(t) => {
           setToken(t);
           localStorage.setItem("cards_admin_token", t);
@@ -1722,7 +1671,21 @@ function AdminPanel({ token, onLogout }) {
                   />
                   {allChecked ? "בטל הכל ✗" : "בחר הכל ✓"}
                 </label>
-
+                <div className="dilenMobileSearchWrap">
+                  <ClearableInput
+                    value={search}
+                    onChange={setSearch}
+                    placeholder="חפש בטבלה..."
+                    disabled={busy}
+                  />
+                </div>
+                <div className="dilenToggle dilenMobileUnsaved">
+                  <span className="dilenMobileUnsavedLabel">שינויים:</span>
+                  <span className="dilenCode">{dirtyCount + newCount}</span>
+                </div>
+                <div>
+                  <span className="">&nbsp;&nbsp;&nbsp;</span>
+                </div>
                 <label className="dilenToggle dilenMobileToggleCompact">
                   <input
                     type="checkbox"
@@ -1732,43 +1695,25 @@ function AdminPanel({ token, onLogout }) {
                   />
                   מסומנים בלבד ✓
                 </label>
-
-                <div className="dilenToggle dilenMobileUnsaved">
-                  <span className="dilenMobileUnsavedLabel">שינויים:</span>
-                  <span className="dilenCode">{dirtyCount + newCount}</span>
-                </div>
-              </div>
-
-              {/* ROW 2 */}
-              <div className="dilenMobileRow2">
-                <div className="dilenMobileSearchWrap">
-                  <ClearableInput
-                    value={search}
-                    onChange={setSearch}
-                    placeholder="חפש בטבלה..."
+                <div className="dilenMobileRow2">
+                  <div className="dilenMobileRow3">
+                    <ClearableInput
+                      value={demoSearch}
+                      onChange={setDemoSearch}
+                      placeholder="חיפוש בתוך התצוגה..."
+                      disabled={busy}
+                      onEnter={openDemoFirst}
+                    />
+                  </div>
+                  <button
+                    className="dilenBtn dilenMobileShowAccent"
+                    onClick={openDemoFirst}
                     disabled={busy}
-                  />
+                    title="פתח תצוגה (לפי מסומנים/חיפוש תצוגה)"
+                  >
+                    {demoOnlyChecked ? `הצג (${demoCountChecked})` : `הצג (${demoCountAll})`}
+                  </button>
                 </div>
-
-                <button
-                  className="dilenBtn dilenMobileShowAccent"
-                  onClick={openDemoFirst}
-                  disabled={busy}
-                  title="פתח תצוגה (לפי מסומנים/חיפוש תצוגה)"
-                >
-                  {demoOnlyChecked ? `הצג (${demoCountChecked})` : `הצג (${demoCountAll})`}
-                </button>
-              </div>
-
-              {/* ROW 3 */}
-              <div className="dilenMobileRow3">
-                <ClearableInput
-                  value={demoSearch}
-                  onChange={setDemoSearch}
-                  placeholder="חיפוש בתוך התצוגה..."
-                  disabled={busy}
-                  onEnter={openDemoFirst}
-                />
               </div>
             </div>
           </div>
