@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "./Login.css";
 
 export default function Login({ onSuccess, fetchJson, dbEndpoint }) {
   const [user, setUser] = useState("1234");
@@ -38,7 +39,12 @@ export default function Login({ onSuccess, fetchJson, dbEndpoint }) {
   return (
     <div className="loginScreen">
       <form className="loginCard" onSubmit={onSubmit}>
-        <h2>Admin Login</h2>
+        <div className="loginHead">
+          <h2 className="loginTitle">
+            <span>כניסת מנהל</span>
+          </h2>
+          <img className="loginLogo" src={`${import.meta.env.BASE_URL}logo_pasha.png`} alt="logo" />
+        </div>
 
         <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="username" />
 
