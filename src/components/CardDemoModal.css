@@ -206,7 +206,7 @@
 }
 .modalSearchInp {
   width: clamp(150px, 20vw, 300px);
-  height: 25px;
+  height: 30px;
   border-radius: 999px;
 
   border: 1px solid rgba(42, 246, 255, 0.16);
@@ -219,7 +219,7 @@
   font-weight: 900;
   text-align: right;
   direction: rtl;
-  font-size: 12px;
+  font-size: 16px;
 }
 .modalSearchInp:focus {
   box-shadow: var(--ring);
