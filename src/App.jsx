@@ -1460,10 +1460,8 @@ function AdminPanel({ token, onLogout }) {
   const demoCountAll = demoIndicesAll.length;
   const demoCountChecked = demoIndicesChecked.length;
   const demoTotal = demoIndices.length;
-
   // position inside filtered list
   const demoPos = useMemo(() => demoIndices.indexOf(demoIndex), [demoIndices, demoIndex]);
-
   // 1-based page number for UI
   // 1-based page number for UI
   const demoPage = demoPos >= 0 ? demoPos + 1 : 1;

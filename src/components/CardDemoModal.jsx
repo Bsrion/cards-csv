@@ -122,6 +122,7 @@ export default function CardDemoModal(props) {
     backgroundUrl = "",
     onPrev,
     onNext,
+    total,
 
     // search integration
     onSearch, // (text) => void
@@ -893,13 +894,18 @@ export default function CardDemoModal(props) {
                   ) : null}
                 </div>
               </div>
+              <span
+                className="pillText"
+                style={{ color: "white", marginRight: 8, color: "#9e9e9eff" }}
+              >
+                {total} כרטיסים
+              </span>
             </div>
 
             <div className="topDesktopRight">
-              <span className="titlePill" title={titleRow}>
+              <span className="Pill" title={titleRow}>
                 {titleRow}
               </span>
-              <span className="pill">⬩</span>
 
               <button className="iconPill" type="button" onClick={handleDownloadPdf} title="PDF">
                 ⬇️
