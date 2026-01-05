@@ -51,6 +51,11 @@
 .dilenCardDemoControls .desktopOnly {
   display: block !important;
 }
+.dilenCardDemoControls.desktopOnly {
+  display: grid !important;
+  /* max-height will be at least 450px, but can grow up to 700px */
+  max-height: clamp(450px, 100vh, 600px) !important;
+}
 
 @media screen and (max-width: 920px) {
   .dilenCardDemoModal .desktopOnly {
