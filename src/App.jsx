@@ -77,29 +77,52 @@ const EXPORT_HEADERS = [
   { key: "alergonim_3", label: "אלרגון_3" },
 ];
 
+// ✅ Excel only
+const EXPORT_HEADERS_EXCEL = [{ key: "id", label: "ID" }, ...EXPORT_HEADERS];
+
+// ✅ TXT export stays WITHOUT id
+const EXPORT_HEADERS_TXT = EXPORT_HEADERS;
+
 function exportExcel(rows, filename = "cards.xlsx") {
   if (!rows || !rows.length) return;
 
-  // Build rows with headers
+  // ✅ Filter out:
+  // - the NEW draft row (is_new && no id)
+  // - totally empty rows
+  // - frozen rows (optional; remove this line if you want frozen included)
+  const cleanRows = rows
+    .filter((r) => !(r?.is_new && !r?.id))
+    .filter((r) => !r?.is_frozen)
+    .filter((r) => !isRowEmptyForDB(r));
+
+  if (!cleanRows.length) {
+    alert("אין שורות תקינות לייצוא ל-Excel.");
+    return;
+  }
+
+  // ✅ Use the SAME headers array for header + rows + widths
+  const H = EXPORT_HEADERS_EXCEL;
+
   const data = [
-    EXPORT_HEADERS.map((h) => h.label), // header row
-    ...rows.map((row) => EXPORT_HEADERS.map((h) => row[h.key] ?? "")),
+    H.map((h) => h.label), // header row
+    ...cleanRows.map((row) => H.map((h) => row?.[h.key] ?? "")),
   ];
 
-  // Create worksheet
   const ws = XLSX.utils.aoa_to_sheet(data);
 
   // RTL support (important for Hebrew)
   ws["!rtl"] = true;
 
-  // Auto column widths
-  ws["!cols"] = EXPORT_HEADERS.map(() => ({ wch: 22 }));
+  // widths count must match columns count
+  ws["!cols"] = H.map((h) => ({ wch: h.key === "id" ? 10 : 22 }));
 
-  // Create workbook
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Cards");
 
-  // Download
+  // ✅ workbook RTL view (extra)
+  wb.Workbook = wb.Workbook || {};
+  wb.Workbook.Views = [{ RTL: true }];
+
+  XLSX.utils.book_append_sheet(wb, ws, "Cards");
   XLSX.writeFile(wb, filename);
 }
 
@@ -129,8 +152,11 @@ const ALERGEN_LIST = Object.values(ALERGENS);
    Helpers
    ========================= */
 function makeClientId() {
-  return crypto?.randomUUID?.() || `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
+
 function fmtPrice2(v) {
   const s = cleanSpaces(v).replace(",", ".");
   if (!s) return "";
@@ -511,6 +537,8 @@ function AdminPanel({ token, onLogout }) {
   /** ✅ Modal navigation controls (separate from table search) */
   const [demoOnlyChecked, setDemoOnlyChecked] = useState(false);
   const [demoSearch, setDemoSearch] = useState("");
+
+  const [showIdCol, setShowIdCol] = useState(false); // ✅ default hidden
 
   const allChecked = useMemo(() => rows.length > 0 && rows.every((r) => !!r.is_selected), [rows]);
   const noneChecked = useMemo(() => rows.every((r) => !r.is_selected), [rows]);
@@ -1683,8 +1711,7 @@ function AdminPanel({ token, onLogout }) {
                   <span className="dilenMobileUnsavedLabel">שינויים:</span>
                   <span className="dilenCode">{dirtyCount + newCount}</span>
                 </div>
-                <div>
-                </div>
+                <div></div>
                 <label className="dilenToggle dilenMobileToggleCompact">
                   <input
                     type="checkbox"
@@ -1810,17 +1837,29 @@ function AdminPanel({ token, onLogout }) {
 
       <div className="dilenTableWrap">
         <div className="dilenScroll">
-          <table className="dilenTable">
+          <table
+            className={`dilenTable ${showIdCol ? "dilenTable--idShow" : "dilenTable--idHide"}`}
+          >
             <thead>
               <tr>
                 <Th className="col-num">#</Th>
+
+                {/* ✅ NEW: ID column */}
+                <IdTh
+                  show={showIdCol}
+                  onToggle={() => setShowIdCol((s) => !s)}
+                  onSort={toggleSort}
+                  mark={sortMark}
+                />
+
                 <SortTh
                   className="col-save"
-                  label="שמור?"
+                  label="בחר"
                   col="is_selected"
                   onSort={toggleSort}
                   mark={sortMark}
                 />
+
                 <SortTh
                   className="col-line"
                   label="שורה_1"
@@ -1905,6 +1944,7 @@ function AdminPanel({ token, onLogout }) {
                   mark={sortMark}
                   iconNumber={3}
                 />
+
                 <Th className="col-actions">פעולות</Th>
               </tr>
             </thead>
@@ -1922,6 +1962,9 @@ function AdminPanel({ token, onLogout }) {
                 return (
                   <tr key={r.client_id || realIndex}>
                     <td className="dilenCenter">{idxVisible + 1}</td>
+
+                    {/* ✅ NEW: ID cell */}
+                    <td className="dilenCenter colIdCell">{showIdCol ? r.id ?? "" : ""}</td>
 
                     <td className="dilenCenter">
                       <input
@@ -2315,6 +2358,29 @@ function SortTh({ label, col, onSort, mark, className, iconNumber }) {
     </th>
   );
 }
+
+const IdTh = ({ show, onToggle, onSort, mark }) => (
+  <th
+    className={`dilenSortTh col-id idToggleTh ${show ? "idOn" : "idOff"}`}
+    title={
+      show
+        ? "לחץ להסתיר ID • Shift+Click = מיין לפי ID"
+        : "לחץ להציג ID • Shift+Click = מיין לפי ID"
+    }
+    onClick={(e) => {
+      if (e.shiftKey) onSort("id");
+      else onToggle();
+    }}
+    style={{ userSelect: "none", cursor: "pointer" }}
+  >
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      ID
+      <span style={{ fontSize: 12, opacity: 0.75 }}>{show ? "👁" : "🙈"}</span>
+    </span>
+    <span className="sortMark">{mark("id")}</span>
+  </th>
+);
+
 function ClearableInput({ value, onChange, placeholder, disabled, style, onEnter }) {
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center", ...style }}>
