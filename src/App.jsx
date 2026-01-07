@@ -32,7 +32,7 @@ const DB_ENDPOINT = `${API_BASE}cards.php`;
 const BASE = import.meta.env.BASE_URL || "/";
 const withBase = (p) => `${BASE}${p.replace(/^\/+/, "")}`;
 
-const UNIT_OPTIONS = ["ל-100 גרם", "ליח׳"];
+const UNIT_OPTIONS = ["ל-100 גר׳", "ליח׳"];
 
 const OPTION_PRESETS = [
   "",
@@ -423,7 +423,11 @@ function normalizeImportedRow(raw) {
   r.line_3 = String(raw?.line_3 ?? "");
   r.english_name = String(raw?.english_name ?? "");
   r.price = String(raw?.price ?? "");
-  r.unit = String(raw?.unit ?? "");
+  r.unit = normalizeUnit(raw?.unit ?? "");
+
+  function normalizeUnit(u = "") {
+    return String(u).replaceAll("גרם", "גר׳").replaceAll("גר'", "גר׳"); // אם מישהו כתב בטעות apostrophe רגיל
+  }
 
   r.option_1_custom = String(raw?.option_1 ?? raw?.option_1_custom ?? "");
   r.option_2_custom = String(raw?.option_2 ?? raw?.option_2_custom ?? "");
