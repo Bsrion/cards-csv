@@ -439,8 +439,8 @@ table.dilenTable {
 
   .dilenMobileTogglesGrid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    grid-template-columns: 2fr 2fr 1fr;
+    gap: 7px;
     width: 100%;
     align-items: stretch;
   }

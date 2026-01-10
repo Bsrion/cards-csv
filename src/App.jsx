@@ -1777,29 +1777,28 @@ function AdminPanel({ token, onLogout }) {
           </div>
 
           <div className="dilenToggles">
-            <label
-              className="dilenToggle"
-              style={{ width: "100%", justifyContent: "center" }}
-              title={
-                allChecked
-                  ? "כל השורות מסומנות"
-                  : mixedChecked
-                  ? "חלק מסומנות"
-                  : "אף שורה לא מסומנת"
-              }
-            >
-              <input
-                type="checkbox"
-                checked={allChecked}
-                ref={(el) => {
-                  if (el) el.indeterminate = mixedChecked;
-                }}
-                onChange={(e) => toggleCheckAll(e.target.checked)}
-              />
-              {allChecked ? " בטל בחירת כל הכרטיסים ✗" : "בחר הכל ✓"}
-            </label>
-
             <div className="dilenMobileTogglesGrid">
+              <label
+                className="dilenToggle"
+                style={{ width: "100%", justifyContent: "center" }}
+                title={
+                  allChecked
+                    ? "כל השורות מסומנות"
+                    : mixedChecked
+                    ? "חלק מסומנות"
+                    : "אף שורה לא מסומנת"
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={allChecked}
+                  ref={(el) => {
+                    if (el) el.indeterminate = mixedChecked;
+                  }}
+                  onChange={(e) => toggleCheckAll(e.target.checked)}
+                />
+                {allChecked ? " בטל בחירה ✗" : "בחר הכל ✓"}
+              </label>
               <label className="dilenToggle" style={{ justifyContent: "center" }}>
                 <input
                   type="checkbox"
@@ -1811,7 +1810,7 @@ function AdminPanel({ token, onLogout }) {
               </label>
 
               <div className="dilenToggle" style={{ justifyContent: "center", gap: 10 }}>
-                <span style={{ fontWeight: 900 }}>שינויים לא שמורים:</span>
+                <span style={{ fontWeight: 900 }}>שינויים:</span>
                 <span className="dilenCode">{dirtyCount + newCount}</span>
               </div>
 
@@ -2385,7 +2384,7 @@ const IdTh = ({ show, onToggle, onSort, mark }) => (
 
 function ClearableInput({ value, onChange, placeholder, disabled, style, onEnter }) {
   return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "center", ...style }}>
+    <div style={{ position: "relative", display: "flex", alignItems: "center", ...style }}>
       <input
         className="dilenInp"
         dir="rtl"
@@ -2399,7 +2398,7 @@ function ClearableInput({ value, onChange, placeholder, disabled, style, onEnter
         style={{
           width: "100%",
           height: 34,
-          fontSize: 14,
+          fontSize: 16,
           borderRadius: 10,
           paddingLeft: 40, // space for X on left
           textAlign: "right",
