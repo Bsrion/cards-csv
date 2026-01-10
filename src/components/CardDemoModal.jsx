@@ -44,7 +44,7 @@ const DEFAULT_LAYOUT_CM = {
   a3: { x: 8.7, y: 11.9, w: 1.0, h: 1.0 },
 
   // PRICE GROUP controls X/Y (group)
-  price_group: { x: 0.0, y: 12.7 },
+  price_group: { x: 0.0, y: 12.9 },
 
   // price parts style only
   price_value: { size: 42, weight: 900, color: "#111" },
