@@ -65,7 +65,7 @@ function optionToIcon(opt) {
   const t = cleanSpaces(opt);
   if (t.includes("צמחוני")) return ALERGEN_ICON_URLS.a2;
   if (t.includes("טבעוני")) return ALERGEN_ICON_URLS.a3;
-  if (t.includes("אינו מכיל גלוטן")) return ALERGEN_ICON_URLS.a1;
+  if (t.includes("גלוטן")) return ALERGEN_ICON_URLS.a1;
   return null;
 }
 function clamp(n, min, max) {
@@ -697,7 +697,8 @@ export default function CardDemoModal(props) {
 
     if (!(okNormal || okFast)) return;
 
-    if (dx < 0) onNext?.(); // swipe left => next
+    if (dx < 0)
+      onNext?.(); // swipe left => next
     else onPrev?.(); // swipe right => prev
   }
 

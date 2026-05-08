@@ -36,9 +36,9 @@ const UNIT_OPTIONS = ["ל-100 גר׳", "ליח׳"];
 
 const OPTION_PRESETS = [
   "",
-  "אינו מכיל גלוטן אך מיוצר בסביבה המכילה גלוטן",
+  "לנמנעים מגלוטן - מיוצר בסביבה המכילה גלוטן",
   "טבעוני",
-  "בשר חלק חול לפי שיטת בית יוסף",
+  "בשר חלק חו״ל לפי שיטת בית יוסף",
   "צמחוני",
   "ללא חשש תולעים",
   "עוף מהדרין",
@@ -191,12 +191,13 @@ function combineLines(line1, line2, line3) {
 function allergenFromNote(note) {
   const t = cleanSpaces(note);
   if (!t) return "";
-  if (t.startsWith("אינו מכיל גלוטן")) return ALERGENS.GLUTEN.path;
-  if (t === "טבעוני") return ALERGENS.VEGAN.path;
-  if (t === "צמחוני") return ALERGENS.VEGETARIAN.path;
+
+  if (t.includes("גלוטן")) return ALERGENS.GLUTEN.path;
+  if (t.includes("טבעוני")) return ALERGENS.VEGAN.path;
+  if (t.includes("צמחוני")) return ALERGENS.VEGETARIAN.path;
+
   return "";
 }
-
 /** PATH -> LABEL (for UI only) */
 function allergenPathToLabel(path) {
   const p = cleanSpaces(path);
@@ -1018,6 +1019,22 @@ function AdminPanel({ token, onLogout }) {
         r.alergonim_3_mode =
           r.alergonim_3_locked && allergenPathToLabel(r.alergonim_3) === "ידני" ? "manual" : "auto";
 
+        // ✅ Auto-fill allergen icon from option text after DB load
+        for (const i of [1, 2, 3]) {
+          const valKey = `alergonim_${i}`;
+          const lockKey = `alergonim_${i}_locked`;
+          const modeKey = `alergonim_${i}_mode`;
+
+          const note = finalOption(r[`option_${i}_preset`], r[`option_${i}_custom`]);
+          const autoPath = allergenFromNote(note);
+
+          if (autoPath && (!cleanSpaces(r[valKey]) || cleanSpaces(r[valKey]) === "0")) {
+            r[valKey] = autoPath;
+            r[lockKey] = false;
+            r[modeKey] = "auto";
+          }
+        }
+
         r.is_new = false;
         r.dirty = false;
         r.client_id = makeClientId();
@@ -1687,8 +1704,8 @@ function AdminPanel({ token, onLogout }) {
                     allChecked
                       ? "כל השורות מסומנות"
                       : mixedChecked
-                      ? "חלק מסומנות"
-                      : "אף שורה לא מסומנת"
+                        ? "חלק מסומנות"
+                        : "אף שורה לא מסומנת"
                   }
                 >
                   <input
@@ -1785,8 +1802,8 @@ function AdminPanel({ token, onLogout }) {
                   allChecked
                     ? "כל השורות מסומנות"
                     : mixedChecked
-                    ? "חלק מסומנות"
-                    : "אף שורה לא מסומנת"
+                      ? "חלק מסומנות"
+                      : "אף שורה לא מסומנת"
                 }
               >
                 <input
@@ -1965,7 +1982,7 @@ function AdminPanel({ token, onLogout }) {
                     <td className="dilenCenter">{idxVisible + 1}</td>
 
                     {/* ✅ NEW: ID cell */}
-                    <td className="dilenCenter colIdCell">{showIdCol ? r.id ?? "" : ""}</td>
+                    <td className="dilenCenter colIdCell">{showIdCol ? (r.id ?? "") : ""}</td>
 
                     <td className="dilenCenter">
                       <input
